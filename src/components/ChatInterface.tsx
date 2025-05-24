@@ -5,7 +5,7 @@ import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
 import RoutingDebugPanel from './RoutingDebugPanel';
 import ErrorDisplay from './ErrorDisplay';
-import { MessageCircle, Brain, Settings, Lightbulb } from 'lucide-react';
+import { MessageCircle, Brain, Settings, Lightbulb, Code2, FileText } from 'lucide-react';
 
 export default function ChatInterface() {
   const {
@@ -43,6 +43,18 @@ export default function ChatInterface() {
           Vedrai il loro processo di pensiero interno, non la risposta finale.
         </p>
         
+        {/* Markdown Support Notice */}
+        <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-4 mb-6 border border-green-200">
+          <div className="flex items-center gap-2 mb-2">
+            <FileText className="w-5 h-5 text-green-600" />
+            <h3 className="font-semibold text-green-800">✨ Supporto Markdown</h3>
+          </div>
+          <p className="text-sm text-green-700 text-left">
+            Ora la chat supporta <strong>Markdown completo</strong>: code blocks con syntax highlighting, 
+            tabelle, liste, links, e molto altro per risposte più ricche e professionali.
+          </p>
+        </div>
+        
         <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl p-6 mb-6 border border-purple-200">
           <div className="flex items-center gap-2 mb-3">
             <Lightbulb className="w-5 h-5 text-purple-600" />
@@ -59,22 +71,65 @@ export default function ChatInterface() {
         <div className="space-y-3 mb-6">
           <p className="text-sm font-medium text-neutral-700 mb-3">Prova questi esempi per attivare gli specialisti:</p>
           {[
-            { text: "Analizza l'architettura di React in dettaglio", specialist: "Analitico Tecnico (INTJ)" },
-            { text: "Crea una storia fantastica originale", specialist: "Creativo Ideatore (ENFP)" },
-            { text: "Verifica se questa informazione è accurata: [info]", specialist: "Verificatore Critico (ISTJ)" },
-            { text: "Ho bisogno di supporto emotivo per questa situazione", specialist: "Facilitatore Empatico (ENFJ)" },
-            { text: "Ciao, come stai?", specialist: "API Generica (semplice)" }
+            { 
+              text: "Analizza l'architettura di React in dettaglio e mostra il codice", 
+              specialist: "Analitico Tecnico (INTJ)",
+              icon: <Code2 ClassName="w-4 h-4" />
+            },
+            { 
+              text: "Crea una storia fantastica originale con tabelle dei personaggi", 
+              specialist: "Creativo Ideatore (ENFP)",
+              icon: <FileText className="w-4 h-4" />
+            },
+            { 
+              text: "Verifica se questa informazione è accurata: [info] e fornisci sources", 
+              specialist: "Verificatore Critico (ISTJ)",
+              icon: <Settings className="w-4 h-4" />
+            },
+            { 
+              text: "Ho bisogno di supporto emotivo per questa situazione", 
+              specialist: "Facilitatore Empatico (ENFJ)",
+              icon: <Brain className="w-4 h-4" />
+            },
+            { 
+              text: "Ciao, come stai?", 
+              specialist: "API Generica (semplice)",
+              icon: <MessageCircle className="w-4 h-4" />
+            }
           ].map((example, index) => (
             <div key={index} className="group">
               <button
                 onClick={() => sendMessage(example.text)}
                 className="w-full p-3 bg-white hover:bg-neutral-50 rounded-lg border border-neutral-200 text-left transition-all hover:shadow-md"
               >
-                <div className="text-sm text-neutral-800 mb-1">{example.text}</div>
-                <div className="text-xs text-neutral-500">→ {example.specialist}</div>
+                <div className="flex items-start gap-3">
+                  <div className="text-neutral-500 mt-0.5">
+                    {example.icon}
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm text-neutral-800 mb-1">{example.text}</div>
+                    <div className="text-xs text-neutral-500">→ {example.specialist}</div>
+                  </div>
+                </div>
               </button>
             </div>
           ))}
+        </div>
+
+        {/* Markdown Examples */}
+        <div className="bg-neutral-50 rounded-xl p-4 mb-6 border border-neutral-200">
+          <div className="flex items-center gap-2 mb-3">
+            <Code2 className="w-5 h-5 text-neutral-600" />
+            <h3 className="font-semibold text-neutral-800">Esempi Markdown supportati:</h3>
+          </div>
+          <div className="text-xs text-neutral-600 space-y-1 text-left font-mono">
+            <p># Titoli, **grassetto**, *corsivo*</p>
+            <p>```python → Code blocks con highlighting</p>
+            <p>| Tabella | Supportata | ✓ |</p>
+            <p>- Liste • puntate e 1. numerate</p>
+            <p>&gt; Blockquotes per citazioni</p>
+            <p>[Link](url) e `codice inline`</p>
+          </div>
         </div>
         
         <div className="text-xs text-neutral-500 bg-neutral-50 rounded-lg p-3">
@@ -122,9 +177,13 @@ export default function ChatInterface() {
                         {getThinkingCount()} chain of thought
                       </span>
                     )}
+                    <span className="flex items-center gap-1 text-green-600">
+                      <FileText className="w-3 h-3" />
+                      Markdown supportato
+                    </span>
                   </div>
                 ) : (
-                  <p className="text-sm text-neutral-500">Modalità Chain of Thought attiva</p>
+                  <p className="text-sm text-neutral-500">Modalità Chain of Thought + Markdown attiva</p>
                 )}
               </div>
             </div>

@@ -1,6 +1,10 @@
 import { Message } from '@/types/chat';
 import { User, Bot, Copy, Check, Brain, Lightbulb, Search } from 'lucide-react';
 import { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import remarkGfm from 'remark-gfm';
 import SpecialistIndicator from './SpecialistIndicator';
 
 interface MessageBubbleProps {
@@ -115,28 +119,241 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             </div>
           )}
 
-          {/* Message text with enhanced formatting for thinking */}
-          <div className={`prose prose-sm max-w-none ${
-            isThinking ? 'prose-purple' : ''
-          }`}>
-            {message.content.split('\n').map((line, index) => {
-              // Enhanced formatting for chain of thought phases
-              const isPhaseHeader = line.match(/^\*\*(FASE \d+|METACOGNIZIONE).*\*\*$/);
-              const isBulletPoint = line.match(/^[-•]\s/);
-              const isSubPoint = line.match(/^\s+[-•]\s/);
-              
-              return (
-                <p key={index} className={`
-                  ${index === 0 ? 'mt-0' : 'mt-2'} mb-0 leading-relaxed
-                  ${isUser ? 'text-white' : 'text-neutral-800'}
-                  ${isPhaseHeader ? 'font-bold text-purple-700 mt-4 mb-2 text-base' : ''}
-                  ${isBulletPoint ? 'ml-2' : ''}
-                  ${isSubPoint ? 'ml-4 text-sm' : ''}
-                `}>
-                  {line || '\u00A0'}
-                </p>
-              );
-            })}
+          {/* Message content with Markdown support */}
+          <div className={`markdown-content ${isThinking ? 'thinking-markdown' : ''}`}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                // Code blocks with syntax highlighting
+                code: ({ node, inline, className, children, ...props }) => {
+                  const match = /language-(\w+)/.exec(className || '');
+                  const codeContent = String(children).replace(/\n$/, '');
+                  
+                  if (!inline && match) {
+                    return (
+                      <div className="relative group">
+                        <div className="flex items-center justify-between bg-neutral-800 text-neutral-200 px-4 py-2 text-sm font-mono rounded-t-lg">
+                          <span>{match[1]}</span>
+                          <button
+                            onClick={() => navigator.clipboard.writeText(codeContent)}
+                            className="opacity-60 hover:opacity-100 transition-opacity"
+                            title="Copia codice"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <SyntaxHighlighter
+                          language={match[1]}
+                          style={vscDarkPlus}
+                          customStyle={{
+                            margin: 0,
+                            borderTopLeftRadius: 0,
+                            borderTopRightRadius: 0,
+                            borderBottomLeftRadius: '0.5rem',
+                            borderBottomRightRadius: '0.5rem',
+                          }}
+                          {...props}
+                        >
+                          {codeContent}
+                        </SyntaxHighlighter>
+                      </div>
+                    );
+                  }
+
+                  // Inline code
+                  return (
+                    <code 
+                      className={`px-1.5 py-0.5 rounded text-sm font-mono ${
+                        isUser 
+                          ? 'bg-primary-500/20 text-primary-100' 
+                          : isThinking
+                            ? 'bg-purple-100 text-purple-800'
+                            : 'bg-neutral-100 text-neutral-800'
+                      }`}
+                      {...props}
+                    >
+                      {children}
+                    </code>
+                  );
+                },
+
+                // Blockquotes
+                blockquote: ({ children, ...props }) => {
+                  return (
+                    <blockquote 
+                      className={`border-l-4 pl-4 py-2 my-3 italic ${
+                        isUser 
+                          ? 'border-primary-300 text-primary-100' 
+                          : isThinking
+                            ? 'border-purple-300 text-purple-700 bg-purple-50/50'
+                            : 'border-neutral-300 text-neutral-600 bg-neutral-50'
+                      }`}
+                      {...props}
+                    >
+                      {children}
+                    </blockquote>
+                  );
+                },
+
+                // Tables
+                table: ({ children, ...props }) => {
+                  return (
+                    <div className="overflow-x-auto my-4">
+                      <table className="min-w-full border-collapse border border-neutral-300" {...props}>
+                        {children}
+                      </table>
+                    </div>
+                  );
+                },
+
+                th: ({ children, ...props }) => {
+                  return (
+                    <th 
+                      className={`border border-neutral-300 px-3 py-2 text-left font-semibold ${
+                        isUser 
+                          ? 'bg-primary-500/20 text-primary-100' 
+                          : isThinking
+                            ? 'bg-purple-100 text-purple-800'
+                            : 'bg-neutral-100 text-neutral-800'
+                      }`}
+                      {...props}
+                    >
+                      {children}
+                    </th>
+                  );
+                },
+
+                td: ({ children, ...props }) => {
+                  return (
+                    <td 
+                      className={`border border-neutral-300 px-3 py-2 ${
+                        isUser ? 'text-white' : 'text-neutral-700'
+                      }`}
+                      {...props}
+                    >
+                      {children}
+                    </td>
+                  );
+                },
+
+                // Links - versione semplificata
+                a: (props) => {
+                  const linkClass = `underline transition-colors ${
+                    isUser 
+                      ? 'text-primary-200 hover:text-white' 
+                      : isThinking
+                        ? 'text-purple-600 hover:text-purple-800'
+                        : 'text-primary-600 hover:text-primary-800'
+                  }`;
+                  
+                  return (
+                    <a 
+                      className={linkClass}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      {...props}
+                    />
+                  );
+                },
+
+                // Lists
+                ul: ({ children, ...props }) => {
+                  return (
+                    <ul className="list-disc list-inside my-2 space-y-1" {...props}>
+                      {children}
+                    </ul>
+                  );
+                },
+
+                ol: ({ children, ...props }) => {
+                  return (
+                    <ol className="list-decimal list-inside my-2 space-y-1" {...props}>
+                      {children}
+                    </ol>
+                  );
+                },
+
+                li: ({ children, ...props }) => {
+                  return (
+                    <li className="ml-2" {...props}>
+                      {children}
+                    </li>
+                  );
+                },
+
+                // Headings
+                h1: ({ children, ...props }) => {
+                  return (
+                    <h1 
+                      className={`text-xl font-bold mt-4 mb-2 ${
+                        isUser ? 'text-white' : isThinking ? 'text-purple-800' : 'text-neutral-800'
+                      }`}
+                      {...props}
+                    >
+                      {children}
+                    </h1>
+                  );
+                },
+
+                h2: ({ children, ...props }) => {
+                  return (
+                    <h2 
+                      className={`text-lg font-semibold mt-3 mb-2 ${
+                        isUser ? 'text-white' : isThinking ? 'text-purple-700' : 'text-neutral-800'
+                      }`}
+                      {...props}
+                    >
+                      {children}
+                    </h2>
+                  );
+                },
+
+                h3: ({ children, ...props }) => {
+                  return (
+                    <h3 
+                      className={`text-base font-semibold mt-3 mb-1 ${
+                        isUser ? 'text-white' : isThinking ? 'text-purple-700' : 'text-neutral-800'
+                      }`}
+                      {...props}
+                    >
+                      {children}
+                    </h3>
+                  );
+                },
+
+                // Paragraphs
+                p: ({ children, ...props }) => {
+                  return (
+                    <p 
+                      className={`mb-2 leading-relaxed ${
+                        isUser ? 'text-white' : isThinking ? 'text-neutral-800' : 'text-neutral-800'
+                      }`}
+                      {...props}
+                    >
+                      {children}
+                    </p>
+                  );
+                },
+
+                // Horizontal rules
+                hr: ({ ...props }) => {
+                  return (
+                    <hr 
+                      className={`my-4 border-t ${
+                        isUser 
+                          ? 'border-primary-300' 
+                          : isThinking 
+                            ? 'border-purple-200' 
+                            : 'border-neutral-300'
+                      }`}
+                      {...props}
+                    />
+                  );
+                }
+              }}
+            >
+              {message.content}
+            </ReactMarkdown>
           </div>
 
           {/* Special footer for chain of thought */}
