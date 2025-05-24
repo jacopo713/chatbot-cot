@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages, specialist } = await req.json();
+    const { messages, specialist, mode = 'thinking' } = await req.json();
     
     // Validazione input
     if (!messages || !Array.isArray(messages)) {
@@ -15,15 +15,28 @@ export async function POST(req: NextRequest) {
     // Prepara i messaggi per l'API
     let apiMessages = messages;
     
-    // Se abbiamo uno specialista, aggiungi il system prompt (con lunghezza limitata)
-    if (specialist?.systemPrompt) {
-      // Limita la lunghezza del system prompt per evitare timeout
-      const truncatedPrompt = specialist.systemPrompt.length > 500 
-        ? specialist.systemPrompt.substring(0, 500) + "..."
-        : specialist.systemPrompt;
-
+    // Per la modalità thinking, usa il chainOfThoughtPrompt
+    if (specialist && mode === 'thinking') {
+      const systemPrompt = specialist.chainOfThoughtPrompt || specialist.systemPrompt;
+      
       apiMessages = [
-        { role: 'system', content: truncatedPrompt },
+        { 
+          role: 'system', 
+          content: `${systemPrompt}
+
+IMPORTANTE: 
+- NON fornire mai la risposta finale alla domanda
+- Mostra SOLO il tuo processo di pensiero interno
+- Usa la struttura delle fasi indicate
+- Termina sempre con la frase conclusiva specifica del tuo ruolo
+- Questo aiuta lo sviluppatore a capire come ragioni`
+        },
+        ...messages
+      ];
+    } else if (specialist?.systemPrompt) {
+      // Modalità normale (se mai servisse)
+      apiMessages = [
+        { role: 'system', content: specialist.systemPrompt },
         ...messages
       ];
     }
@@ -31,12 +44,13 @@ export async function POST(req: NextRequest) {
     console.log('Sending request to DeepSeek API...', {
       messageCount: apiMessages.length,
       hasSpecialist: !!specialist,
-      specialist: specialist?.name || 'generic'
+      specialist: specialist?.name || 'generic',
+      mode: mode
     });
 
-    // Configurazione con timeout
+    // Configurazione con timeout ridotto per chain of thought
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 secondi timeout
+    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 secondi
 
     const response = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
@@ -48,8 +62,8 @@ export async function POST(req: NextRequest) {
         model: 'deepseek-chat',
         messages: apiMessages,
         stream: true,
-        temperature: specialist ? 0.7 : 0.5,
-        max_tokens: 1500, // Riduciamo per evitare timeout
+        temperature: mode === 'thinking' ? 0.8 : 0.7, // Più creatività per thinking
+        max_tokens: mode === 'thinking' ? 1200 : 1500,
       }),
       signal: controller.signal
     });
@@ -61,7 +75,7 @@ export async function POST(req: NextRequest) {
       throw new Error(`DeepSeek API error: ${response.status} ${response.statusText}`);
     }
 
-    // Creiamo uno stream per il client con gestione errori migliorata
+    // Stream processing
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
 
@@ -82,7 +96,7 @@ export async function POST(req: NextRequest) {
 
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
-            buffer = lines.pop() || ''; // Mantieni l'ultima linea incompleta
+            buffer = lines.pop() || '';
 
             for (const line of lines) {
               const trimmedLine = line.trim();
@@ -98,7 +112,10 @@ export async function POST(req: NextRequest) {
                 try {
                   const parsed = JSON.parse(data);
                   if (parsed.choices?.[0]?.delta?.content) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(parsed)}\n\n`));
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                      ...parsed,
+                      mode: mode // Includi modalità nel response
+                    })}\n\n`));
                   }
                 } catch (e) {
                   console.warn('Skipping malformed JSON:', data);
@@ -128,7 +145,6 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error('API Error:', error);
     
-    // Gestione errori specifica
     let errorMessage = 'Failed to process request';
     let statusCode = 500;
 

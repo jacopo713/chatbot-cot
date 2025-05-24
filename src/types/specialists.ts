@@ -25,6 +25,7 @@ export interface SpecialistProfile {
   bigFive: BigFiveProfile;
   notes: string;
   systemPrompt: string;
+  chainOfThoughtPrompt: string; // Nuovo: prompt specifico per chain of thought
 }
 
 export interface RouterDecision {
@@ -43,4 +44,40 @@ export interface TokenAnalysis {
   hasTechnicalTerms: boolean;
   hasEmotionalContent: boolean;
   requiresCreativity: boolean;
+}
+
+// Nuovi tipi per chain of thought
+export interface ChainOfThoughtStep {
+  step: number;
+  phase: string;
+  reasoning: string;
+  considerations: string[];
+  decision?: string;
+}
+
+export interface ChainOfThoughtResponse {
+  specialistId: string;
+  specialistName: string;
+  userInput: string;
+  thinkingProcess: ChainOfThoughtStep[];
+  finalApproach: string;
+  metacognitionNotes?: string;
+}
+
+// Tipi per metacognizione
+export interface SpecialistPerformanceMetrics {
+  specialistId: string;
+  totalUses: number;
+  averageThinkingSteps: number;
+  commonPatterns: string[];
+  strengths: string[];
+  improvementAreas: string[];
+  lastOptimized: Date;
+}
+
+export interface MetacognitionAnalysis {
+  overallEfficiency: number;
+  specialistMetrics: SpecialistPerformanceMetrics[];
+  recommendedOptimizations: string[];
+  systemImprovement: string[];
 }

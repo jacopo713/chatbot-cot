@@ -5,7 +5,7 @@ import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
 import RoutingDebugPanel from './RoutingDebugPanel';
 import ErrorDisplay from './ErrorDisplay';
-import { MessageCircle, Brain, Settings } from 'lucide-react';
+import { MessageCircle, Brain, Settings, Lightbulb } from 'lucide-react';
 
 export default function ChatInterface() {
   const {
@@ -25,47 +25,69 @@ export default function ChatInterface() {
   const [showDebug, setShowDebug] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentSession?.messages]);
 
   const EmptyState = () => (
     <div className="flex-1 flex items-center justify-center">
-      <div className="text-center max-w-lg mx-auto p-8">
-        <div className="w-16 h-16 bg-primary-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
-          <Brain className="w-8 h-8 text-primary-600" />
+      <div className="text-center max-w-2xl mx-auto p-8">
+        <div className="w-20 h-20 bg-gradient-to-br from-purple-100 to-blue-100 rounded-3xl flex items-center justify-center mx-auto mb-6 border-2 border-purple-200">
+          <Brain className="w-10 h-10 text-purple-600" />
         </div>
-        <h2 className="text-2xl font-semibold text-neutral-800 mb-3">
-          ChatBot AI con Specialisti
+        <h2 className="text-3xl font-bold text-neutral-800 mb-3">
+          ChatBot AI - Chain of Thought
         </h2>
-        <p className="text-neutral-600 mb-6 leading-relaxed">
-          Un assistente AI intelligente con routing automatico verso specialisti MBTI/Big Five.
-          Il sistema sceglie automaticamente lo specialista più adatto per la tua richiesta.
+        <p className="text-neutral-600 mb-6 leading-relaxed text-lg">
+          Esplora come ragionano gli <strong>specialisti AI</strong> prima di rispondere. 
+          Vedrai il loro processo di pensiero interno, non la risposta finale.
         </p>
-        <div className="flex flex-wrap gap-3 justify-center mb-6">
+        
+        <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl p-6 mb-6 border border-purple-200">
+          <div className="flex items-center gap-2 mb-3">
+            <Lightbulb className="w-5 h-5 text-purple-600" />
+            <h3 className="font-semibold text-purple-800">Come funziona:</h3>
+          </div>
+          <div className="text-sm text-purple-700 space-y-2 text-left">
+            <p>• <strong>Input semplici</strong> → Usa API generica (nessun chain of thought)</p>
+            <p>• <strong>Domande complesse</strong> → Attiva uno specialista che mostra il suo ragionamento</p>
+            <p>• <strong>4 Specialisti disponibili</strong> → Ognuno con personalità MBTI/Big Five</p>
+            <p>• <strong>Obiettivo</strong> → Capire come ragiona ogni specialista per ottimizzarli</p>
+          </div>
+        </div>
+
+        <div className="space-y-3 mb-6">
+          <p className="text-sm font-medium text-neutral-700 mb-3">Prova questi esempi per attivare gli specialisti:</p>
           {[
-            "Ciao, come stai?", // → API Generica
-            "Spiegami React in dettaglio", // → Analitico Tecnico
-            "Scrivi una storia breve", // → Creativo Ideatore  
-            "Verifica questa informazione", // → Verificatore Critico
-            "Ho bisogno di supporto" // → Facilitatore Empatico
-          ].map((suggestion, index) => (
-            <button
-              key={index}
-              onClick={() => sendMessage(suggestion)}
-              className="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 rounded-full text-sm text-neutral-700 transition-colors"
-            >
-              {suggestion}
-            </button>
+            { text: "Analizza l'architettura di React in dettaglio", specialist: "Analitico Tecnico (INTJ)" },
+            { text: "Crea una storia fantastica originale", specialist: "Creativo Ideatore (ENFP)" },
+            { text: "Verifica se questa informazione è accurata: [info]", specialist: "Verificatore Critico (ISTJ)" },
+            { text: "Ho bisogno di supporto emotivo per questa situazione", specialist: "Facilitatore Empatico (ENFJ)" },
+            { text: "Ciao, come stai?", specialist: "API Generica (semplice)" }
+          ].map((example, index) => (
+            <div key={index} className="group">
+              <button
+                onClick={() => sendMessage(example.text)}
+                className="w-full p-3 bg-white hover:bg-neutral-50 rounded-lg border border-neutral-200 text-left transition-all hover:shadow-md"
+              >
+                <div className="text-sm text-neutral-800 mb-1">{example.text}</div>
+                <div className="text-xs text-neutral-500">→ {example.specialist}</div>
+              </button>
+            </div>
           ))}
         </div>
-        <div className="text-xs text-neutral-500">
-          💡 Suggerimento: Input semplici usano l'API generica, domande complesse attivano gli specialisti
+        
+        <div className="text-xs text-neutral-500 bg-neutral-50 rounded-lg p-3">
+          💡 <strong>Per sviluppatori:</strong> Questo sistema aiuta a capire e ottimizzare 
+          i pattern di ragionamento di ogni specialista AI attraverso la metacognizione.
         </div>
       </div>
     </div>
   );
+
+  const getThinkingCount = () => {
+    return currentSession?.messages.filter(m => m.messageType === 'thinking').length || 0;
+  };
 
   return (
     <div className="flex h-screen bg-neutral-50">
@@ -84,17 +106,25 @@ export default function ChatInterface() {
         <div className="bg-white border-b border-neutral-200 px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
-                <MessageCircle className="w-5 h-5 text-white" />
+              <div className="w-8 h-8 bg-gradient-to-br from-purple-600 to-blue-600 rounded-lg flex items-center justify-center">
+                <Brain className="w-5 h-5 text-white" />
               </div>
               <div>
                 <h1 className="font-semibold text-neutral-800">
-                  {currentSession?.title || 'ChatBot AI'}
+                  {currentSession?.title || 'Chain of Thought AI'}
                 </h1>
-                {currentSession?.messages.length && (
-                  <p className="text-sm text-neutral-500">
-                    {currentSession.messages.length} messaggi
-                  </p>
+                {currentSession?.messages.length ? (
+                  <div className="flex items-center gap-4 text-sm text-neutral-500">
+                    <span>{currentSession.messages.length} messaggi</span>
+                    {getThinkingCount() > 0 && (
+                      <span className="flex items-center gap-1">
+                        <Brain className="w-3 h-3 text-purple-500" />
+                        {getThinkingCount()} chain of thought
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-neutral-500">Modalità Chain of Thought attiva</p>
                 )}
               </div>
             </div>
@@ -105,7 +135,7 @@ export default function ChatInterface() {
                 onClick={() => setShowDebug(!showDebug)}
                 className={`p-2 rounded-md transition-colors ${
                   showDebug 
-                    ? 'bg-primary-100 text-primary-600' 
+                    ? 'bg-purple-100 text-purple-600' 
                     : 'hover:bg-neutral-100 text-neutral-500'
                 }`}
                 title="Toggle Debug Info"
@@ -115,13 +145,13 @@ export default function ChatInterface() {
 
               {/* Loading indicator */}
               {isLoading && (
-                <div className="flex items-center gap-2 text-sm text-primary-600">
+                <div className="flex items-center gap-2 text-sm text-purple-600">
                   <div className="flex space-x-1">
-                    <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse"></div>
-                    <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse delay-75"></div>
-                    <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse delay-150"></div>
+                    <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                    <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse delay-75"></div>
+                    <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse delay-150"></div>
                   </div>
-                  <span>Elaborando...</span>
+                  <span>Processando pensiero...</span>
                 </div>
               )}
             </div>

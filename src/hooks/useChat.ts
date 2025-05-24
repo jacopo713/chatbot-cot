@@ -19,6 +19,7 @@ export function useChat() {
       messages: [],
       createdAt: new Date(),
       updatedAt: new Date(),
+      specialistUsage: {},
     };
     setSessions(prev => [newSession, ...prev]);
     setCurrentSessionId(newSession.id);
@@ -41,6 +42,11 @@ export function useChat() {
             ...session,
             messages: [...session.messages, message],
             updatedAt: new Date(),
+            // Traccia uso specialisti
+            specialistUsage: message.specialist ? {
+              ...session.specialistUsage,
+              [message.specialist.id]: (session.specialistUsage?.[message.specialist.id] || 0) + 1
+            } : session.specialistUsage
           }
         : session
     ));
@@ -62,7 +68,6 @@ export function useChat() {
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim()) return;
 
-    // Reset error state
     setError(null);
 
     let sessionId = currentSessionId;
@@ -79,7 +84,6 @@ export function useChat() {
 
     addMessageToSession(sessionId, userMessage);
 
-    // Aggiorniamo il titolo se è il primo messaggio
     const session = sessions.find(s => s.id === sessionId);
     if (!session || session.messages.length === 0) {
       updateSessionTitle(sessionId, content);
@@ -89,9 +93,9 @@ export function useChat() {
     abortControllerRef.current = new AbortController();
 
     try {
-      console.log('Starting routing for:', content.substring(0, 50) + '...');
+      console.log('🧠 Starting chain of thought process for:', content.substring(0, 50) + '...');
 
-      // FASE 1: Routing con timeout
+      // FASE 1: Routing
       const routingResponse = await fetch('/api/router', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -107,32 +111,49 @@ export function useChat() {
       const decision: RouterDecision = routingData.decision;
       setRoutingInfo(decision);
 
-      console.log('Routing decision:', decision);
+      console.log('📊 Routing decision:', decision);
 
-      // Messaggio di risposta dell'assistente
-      const assistantMessage: Message = {
+      // Se usa API generica, mostra un messaggio semplice
+      if (decision.useGeneric) {
+        const simpleMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          content: `Input troppo semplice per attivare gli specialisti. 
+          
+Per vedere il chain of thought, prova domande più complesse come:
+- "Analizza l'architettura di React" (→ Analitico Tecnico)
+- "Crea una storia originale su..." (→ Creativo Ideatore)  
+- "Verifica se questa informazione è corretta..." (→ Verificatore Critico)
+- "Ho bisogno di supporto per..." (→ Facilitatore Empatico)`,
+          role: 'assistant',
+          timestamp: new Date(),
+          messageType: 'response'
+        };
+
+        addMessageToSession(sessionId, simpleMessage);
+        setIsLoading(false);
+        setRoutingInfo(null);
+        return;
+      }
+
+      // FASE 2: Chain of Thought
+      const thinkingMessage: Message = {
         id: (Date.now() + 1).toString(),
         content: '',
         role: 'assistant',
         timestamp: new Date(),
         isStreaming: true,
         specialist: decision.selectedSpecialist,
-        phase: 'analytical'
+        phase: 'thinking',
+        messageType: 'thinking'
       };
 
-      addMessageToSession(sessionId, assistantMessage);
+      addMessageToSession(sessionId, thinkingMessage);
 
-      // Breve pausa per mostrare fase di analisi
-      await new Promise(resolve => setTimeout(resolve, 800));
+      console.log('🤔 Starting thinking phase with specialist:', decision.selectedSpecialist?.name);
 
-      // Aggiorna a fase generativa
-      updateMessageInSession(sessionId, assistantMessage.id, {
-        phase: 'generating'
-      });
+      // Breve pausa per mostrare l'attivazione dello specialista
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-      console.log('Starting generation phase...');
-
-      // FASE 2: Generazione con gestione errori migliorata
       const apiMessages = [
         ...(session?.messages || []),
         userMessage
@@ -146,7 +167,8 @@ export function useChat() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           messages: apiMessages,
-          specialist: decision.selectedSpecialist
+          specialist: decision.selectedSpecialist,
+          mode: 'thinking' // Modalità chain of thought
         }),
         signal: abortControllerRef.current?.signal,
       });
@@ -182,7 +204,7 @@ export function useChat() {
                 hasContent = true;
                 accumulatedContent += deltaContent;
                 
-                updateMessageInSession(sessionId, assistantMessage.id, {
+                updateMessageInSession(sessionId, thinkingMessage.id, {
                   content: accumulatedContent
                 });
               }
@@ -193,38 +215,33 @@ export function useChat() {
         }
       }
 
-      // Verifica se abbiamo ricevuto contenuto
       if (!hasContent) {
         throw new Error('No content received from API');
       }
 
-      updateMessageInSession(sessionId, assistantMessage.id, {
+      updateMessageInSession(sessionId, thinkingMessage.id, {
         isStreaming: false,
         phase: undefined
       });
 
-      console.log('Message completed successfully');
+      console.log('✅ Chain of thought completed successfully');
 
     } catch (error: any) {
-      console.error('Error in sendMessage:', error);
+      console.error('❌ Error in sendMessage:', error);
       
       if (error.name !== 'AbortError') {
-        // Gestione errori user-friendly
-        let errorMessage = 'Mi dispiace, si è verificato un errore. ';
+        let errorMessage = 'Mi dispiace, si è verificato un errore durante il processo di pensiero. ';
         
         if (error.message?.includes('timeout')) {
-          errorMessage += 'La richiesta ha impiegato troppo tempo. Riprova con una domanda più semplice.';
+          errorMessage += 'Il processo ha impiegato troppo tempo. Riprova con una domanda più semplice.';
         } else if (error.message?.includes('Network')) {
           errorMessage += 'Problema di connessione. Verifica la tua connessione internet.';
-        } else if (error.message?.includes('configuration')) {
-          errorMessage += 'Errore di configurazione del servizio.';
         } else {
           errorMessage += 'Riprova più tardi.';
         }
         
         setError(errorMessage);
         
-        // Rimuovi il messaggio assistant vuoto e aggiungi errore
         setSessions(prev => prev.map(session =>
           session.id === sessionId
             ? {
@@ -236,6 +253,7 @@ export function useChat() {
                   content: errorMessage,
                   role: 'assistant',
                   timestamp: new Date(),
+                  messageType: 'response'
                 }])
               }
             : session
@@ -263,7 +281,7 @@ export function useChat() {
 
   const selectSession = useCallback((sessionId: string) => {
     setCurrentSessionId(sessionId);
-    setError(null); // Reset error when switching sessions
+    setError(null);
   }, []);
 
   const deleteSession = useCallback((sessionId: string) => {

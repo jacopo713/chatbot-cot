@@ -1,4 +1,4 @@
-import { SpecialistProfile } from './specialists';
+import { SpecialistProfile, ChainOfThoughtResponse } from './specialists';
 
 export interface Message {
   id: string;
@@ -6,8 +6,10 @@ export interface Message {
   role: 'user' | 'assistant';
   timestamp: Date;
   isStreaming?: boolean;
-  specialist?: SpecialistProfile; // Info sullo specialista usato
-  phase?: 'analytical' | 'generating'; // Fase della risposta
+  specialist?: SpecialistProfile;
+  phase?: 'analytical' | 'generating' | 'thinking';
+  chainOfThought?: ChainOfThoughtResponse; // Nuovo: catena di pensiero
+  messageType?: 'response' | 'thinking' | 'metacognition'; // Tipo di messaggio
 }
 
 export interface ChatSession {
@@ -16,6 +18,7 @@ export interface ChatSession {
   messages: Message[];
   createdAt: Date;
   updatedAt: Date;
+  specialistUsage?: { [key: string]: number }; // Traccia uso specialisti
 }
 
 export interface StreamResponse {
