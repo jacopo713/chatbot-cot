@@ -2,23 +2,19 @@ import { useChat } from '@/hooks/useChat';
 import { useRef, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import MessageBubble from './MessageBubble';
-import ThinkingCard from './ThinkingCard';
 import ChatInput from './ChatInput';
-import { Sparkles, MessageCircle, Brain, Eye, EyeOff } from 'lucide-react';
+import { MessageCircle, Brain } from 'lucide-react';
 
 export default function ChatInterface() {
   const {
     sessions,
     currentSession,
     isLoading,
-    currentPhase,
-    showThinking,
     sendMessage,
     stopGeneration,
     createNewSession,
     selectSession,
     deleteSession,
-    toggleShowThinking,
   } = useChat();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -28,19 +24,6 @@ export default function ChatInterface() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentSession?.messages]);
 
-  const getPhaseDisplay = () => {
-    switch (currentPhase) {
-      case 'creative':
-        return { text: 'Fase Creativa...', color: 'text-amber-600', icon: Sparkles };
-      case 'analytical':
-        return { text: 'Fase Analitica...', color: 'text-blue-600', icon: Brain };
-      default:
-        return null;
-    }
-  };
-
-  const phaseDisplay = getPhaseDisplay();
-
   const EmptyState = () => (
     <div className="flex-1 flex items-center justify-center">
       <div className="text-center max-w-lg mx-auto p-8">
@@ -48,17 +31,16 @@ export default function ChatInterface() {
           <Brain className="w-8 h-8 text-primary-600" />
         </div>
         <h2 className="text-2xl font-semibold text-neutral-800 mb-3">
-          ChatBot CoT (Chain of Thought)
+          ChatBot AI
         </h2>
         <p className="text-neutral-600 mb-6 leading-relaxed">
-          Un assistente AI che utilizza un processo di ragionamento a due fasi: 
-          prima genera pensieri creativi, poi fornisce risposte analitiche basate su quei pensieri.
+          Un assistente AI intelligente pronto ad aiutarti con qualsiasi domanda o richiesta.
         </p>
         <div className="flex flex-wrap gap-3 justify-center">
           {[
             "Spiegami un concetto complesso",
             "Aiutami a risolvere un problema",
-            "Analizza una situazione",
+            "Scrivi del codice",
             "Brainstorming creativo"
           ].map((suggestion, index) => (
             <button
@@ -96,50 +78,26 @@ export default function ChatInterface() {
               </div>
               <div>
                 <h1 className="font-semibold text-neutral-800">
-                  {currentSession?.title || 'ChatBot CoT'}
+                  {currentSession?.title || 'ChatBot AI'}
                 </h1>
-                <div className="flex items-center gap-2">
-                  {currentSession?.messages.length && (
-                    <p className="text-sm text-neutral-500">
-                      {currentSession.messages.filter(m => m.role !== 'thinking').length} messaggi
-                    </p>
-                  )}
-                  {phaseDisplay && (
-                    <div className="flex items-center gap-1">
-                      <phaseDisplay.icon className={`w-4 h-4 ${phaseDisplay.color}`} />
-                      <span className={`text-sm ${phaseDisplay.color}`}>
-                        {phaseDisplay.text}
-                      </span>
-                    </div>
-                  )}
-                </div>
+                {currentSession?.messages.length && (
+                  <p className="text-sm text-neutral-500">
+                    {currentSession.messages.length} messaggi
+                  </p>
+                )}
               </div>
             </div>
 
-            {/* Toggle Thinking View */}
-            <button
-              onClick={toggleShowThinking}
-              className={`
-                flex items-center gap-2 px-3 py-2 rounded-md transition-colors
-                ${showThinking 
-                  ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' 
-                  : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
-                }
-              `}
-              title={showThinking ? 'Nascondi catene di pensiero' : 'Mostra catene di pensiero'}
-            >
-              {showThinking ? (
-                <>
-                  <Eye className="w-4 h-4" />
-                  <span className="text-sm">Pensieri Visibili</span>
-                </>
-              ) : (
-                <>
-                  <EyeOff className="w-4 h-4" />
-                  <span className="text-sm">Solo Risposte</span>
-                </>
-              )}
-            </button>
+            {isLoading && (
+              <div className="flex items-center gap-2 text-sm text-primary-600">
+                <div className="flex space-x-1">
+                  <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse"></div>
+                  <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse delay-75"></div>
+                  <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse delay-150"></div>
+                </div>
+                <span>Sto scrivendo...</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -149,19 +107,9 @@ export default function ChatInterface() {
             <EmptyState />
           ) : (
             <div className="max-w-4xl mx-auto px-6 py-8">
-              {currentSession.messages.map((message) => {
-                // Se è un messaggio di thinking e non vogliamo mostrarli, saltiamo
-                if (message.role === 'thinking' && !showThinking) {
-                  return null;
-                }
-                
-                // Rendering del messaggio appropriato
-                if (message.role === 'thinking') {
-                  return <ThinkingCard key={message.id} message={message} />;
-                } else {
-                  return <MessageBubble key={message.id} message={message} />;
-                }
-              })}
+              {currentSession.messages.map((message) => (
+                <MessageBubble key={message.id} message={message} />
+              ))}
               <div ref={messagesEndRef} />
             </div>
           )}

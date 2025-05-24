@@ -1,12 +1,10 @@
 import { useState, useCallback, useRef } from 'react';
-import { Message, ChatSession, ThinkingPhase } from '@/types/chat';
+import { Message, ChatSession } from '@/types/chat';
 
 export function useChat() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [currentPhase, setCurrentPhase] = useState<'creative' | 'analytical' | 'complete'>('complete');
-  const [showThinking, setShowThinking] = useState(true);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const currentSession = sessions.find(s => s.id === currentSessionId);
@@ -58,159 +56,6 @@ export function useChat() {
     ));
   }, []);
 
-  const addThinkingPhase = useCallback((sessionId: string, messageId: string, phase: ThinkingPhase) => {
-    setSessions(prev => prev.map(session =>
-      session.id === sessionId
-        ? {
-            ...session,
-            messages: session.messages.map(msg =>
-              msg.id === messageId
-                ? {
-                    ...msg,
-                    thinkingPhases: [...(msg.thinkingPhases || []), phase],
-                    currentThinkingPhase: phase.type
-                  }
-                : msg
-            )
-          }
-        : session
-    ));
-  }, []);
-
-  const streamVulnerableThought = useCallback(async (
-    sessionId: string,
-    messageId: string,
-    messages: any[]
-  ): Promise<void> => {
-    const phases: Array<{ type: ThinkingPhase['type'], prompt: string }> = [
-      { type: 'initial', prompt: 'Genera il tuo primo pensiero intuitivo' },
-      { type: 'doubt', prompt: 'Ora esprimi dubbi sul pensiero precedente' },
-      { type: 'reconsideration', prompt: 'Riconsidera tutto dall\'inizio' },
-      { type: 'final', prompt: 'Concludi con il pensiero finale integrato' }
-    ];
-
-    for (const phaseConfig of phases) {
-      if (abortControllerRef.current?.signal.aborted) break;
-
-      const response = await fetch('/api/chat/vulnerable', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          messages, 
-          phase: phaseConfig.type,
-          previousPhases: phases.slice(0, phases.indexOf(phaseConfig))
-        }),
-        signal: abortControllerRef.current?.signal,
-      });
-
-      if (!response.ok) throw new Error('Failed to fetch vulnerable thought');
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response stream');
-
-      let phaseContent = '';
-      let confidence = 50;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = new TextDecoder().decode(value);
-        const lines = chunk.split('\n').filter(line => line.trim() !== '');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') break;
-
-            try {
-              const parsed = JSON.parse(data);
-              const deltaContent = parsed.choices?.[0]?.delta?.content || '';
-              
-              if (deltaContent) {
-                phaseContent += deltaContent;
-                
-                // Estrai confidence se presente nel contenuto
-                const confidenceMatch = deltaContent.match(/\[confidence:(\d+)\]/);
-                if (confidenceMatch) {
-                  confidence = parseInt(confidenceMatch[1]);
-                  phaseContent = phaseContent.replace(/\[confidence:\d+\]/, '');
-                }
-              }
-            } catch (e) {
-              // Skip malformed JSON
-            }
-          }
-        }
-      }
-
-      // Aggiungi la fase completata
-      addThinkingPhase(sessionId, messageId, {
-        type: phaseConfig.type,
-        content: phaseContent.trim(),
-        confidence,
-        timestamp: new Date()
-      });
-
-      // Piccola pausa tra le fasi per effetto più naturale
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-  }, [addThinkingPhase]);
-
-  const streamResponse = useCallback(async (
-    endpoint: string,
-    sessionId: string,
-    messageId: string,
-    messages: any[],
-    additionalData?: any
-  ): Promise<string> => {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, ...additionalData }),
-      signal: abortControllerRef.current?.signal,
-    });
-
-    if (!response.ok) throw new Error(`Failed to fetch from ${endpoint}`);
-
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error('No response stream');
-
-    let accumulatedContent = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = new TextDecoder().decode(value);
-      const lines = chunk.split('\n').filter(line => line.trim() !== '');
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') break;
-
-          try {
-            const parsed = JSON.parse(data);
-            const deltaContent = parsed.choices?.[0]?.delta?.content || '';
-            
-            if (deltaContent) {
-              accumulatedContent += deltaContent;
-              
-              updateMessageInSession(sessionId, messageId, {
-                content: accumulatedContent
-              });
-            }
-          } catch (e) {
-            // Skip malformed JSON
-          }
-        }
-      }
-    }
-
-    return accumulatedContent;
-  }, [updateMessageInSession]);
-
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim()) return;
 
@@ -235,81 +80,93 @@ export function useChat() {
     }
 
     setIsLoading(true);
-    setCurrentPhase('creative');
     abortControllerRef.current = new AbortController();
 
     try {
       // Prepariamo i messaggi per l'API
       const apiMessages = [
-        ...(session?.messages.filter(msg => msg.role !== 'thinking') || []),
+        ...(session?.messages || []),
         userMessage
       ].map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'assistant',
+        role: msg.role,
         content: msg.content
       }));
 
-      // FASE 1: Pensiero creativo
-      const thinkingMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: '',
-        role: 'thinking',
-        timestamp: new Date(),
-        isStreaming: true,
-        phase: 'creative',
-      };
-
-      addMessageToSession(sessionId, thinkingMessage);
-
-      // Stream del pensiero creativo
-      const creativeThought = await streamResponse(
-        '/api/chat/creative',
-        sessionId,
-        thinkingMessage.id,
-        apiMessages
-      );
-
-      updateMessageInSession(sessionId, thinkingMessage.id, {
-        isStreaming: false,
-        phase: 'complete'
-      });
-
-      // FASE 2: Risposta analitica basata sul pensiero creativo
-      setCurrentPhase('analytical');
-
+      // Messaggio di risposta dell'assistente
       const assistantMessage: Message = {
-        id: (Date.now() + 2).toString(),
+        id: (Date.now() + 1).toString(),
         content: '',
         role: 'assistant',
         timestamp: new Date(),
         isStreaming: true,
-        phase: 'analytical',
       };
 
       addMessageToSession(sessionId, assistantMessage);
 
-      await streamResponse(
-        '/api/chat/analytical',
-        sessionId,
-        assistantMessage.id,
-        [],
-        { 
-          creativeThought,
-          originalQuestion: content
+      // Stream della risposta
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: apiMessages }),
+        signal: abortControllerRef.current?.signal,
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch response');
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response stream');
+
+      let accumulatedContent = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = new TextDecoder().decode(value);
+        const lines = chunk.split('\n').filter(line => line.trim() !== '');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') break;
+
+            try {
+              const parsed = JSON.parse(data);
+              const deltaContent = parsed.choices?.[0]?.delta?.content || '';
+              
+              if (deltaContent) {
+                accumulatedContent += deltaContent;
+                
+                updateMessageInSession(sessionId, assistantMessage.id, {
+                  content: accumulatedContent
+                });
+              }
+            } catch (e) {
+              // Skip malformed JSON
+            }
+          }
         }
-      );
+      }
 
       updateMessageInSession(sessionId, assistantMessage.id, {
-        isStreaming: false,
-        phase: 'complete'
+        isStreaming: false
       });
 
     } catch (error: any) {
       if (error.name !== 'AbortError') {
         console.error('Error sending message:', error);
+        
+        // Aggiungi messaggio di errore
+        const errorMessage: Message = {
+          id: (Date.now() + 2).toString(),
+          content: 'Mi dispiace, si è verificato un errore. Riprova più tardi.',
+          role: 'assistant',
+          timestamp: new Date(),
+        };
+        addMessageToSession(sessionId, errorMessage);
       }
     } finally {
       setIsLoading(false);
-      setCurrentPhase('complete');
       abortControllerRef.current = null;
     }
   }, [
@@ -318,8 +175,7 @@ export function useChat() {
     createNewSession,
     updateSessionTitle,
     addMessageToSession,
-    updateMessageInSession,
-    streamResponse
+    updateMessageInSession
   ]);
 
   const stopGeneration = useCallback(() => {
@@ -339,21 +195,14 @@ export function useChat() {
     }
   }, [currentSessionId]);
 
-  const toggleShowThinking = useCallback(() => {
-    setShowThinking(prev => !prev);
-  }, []);
-
   return {
     sessions,
     currentSession,
     isLoading,
-    currentPhase,
-    showThinking,
     sendMessage,
     stopGeneration,
     createNewSession,
     selectSession,
     deleteSession,
-    toggleShowThinking,
   };
 }
