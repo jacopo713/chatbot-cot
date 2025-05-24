@@ -1,6 +1,7 @@
 import { Message } from '@/types/chat';
 import { User, Bot, Copy, Check } from 'lucide-react';
 import { useState } from 'react';
+import SpecialistIndicator from './SpecialistIndicator';
 
 interface MessageBubbleProps {
   message: Message;
@@ -52,6 +53,13 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             : 'bg-white border border-neutral-200 text-neutral-800 rounded-bl-md shadow-sm'
           }
         `}>
+          {/* Specialist indicator per messaggi assistant */}
+          {!isUser && message.specialist && (
+            <div className="mb-3">
+              <SpecialistIndicator specialist={message.specialist} />
+            </div>
+          )}
+
           {/* Streaming indicator */}
           {message.isStreaming && (
             <div className="flex items-center gap-1 mb-2">

@@ -1,22 +1,28 @@
 import { useChat } from '@/hooks/useChat';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import Sidebar from './Sidebar';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
-import { MessageCircle, Brain } from 'lucide-react';
+import RoutingDebugPanel from './RoutingDebugPanel';
+import ErrorDisplay from './ErrorDisplay';
+import { MessageCircle, Brain, Settings } from 'lucide-react';
 
 export default function ChatInterface() {
   const {
     sessions,
     currentSession,
     isLoading,
+    routingInfo,
+    error,
     sendMessage,
     stopGeneration,
     createNewSession,
     selectSession,
     deleteSession,
+    clearError,
   } = useChat();
 
+  const [showDebug, setShowDebug] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new messages arrive
@@ -31,17 +37,19 @@ export default function ChatInterface() {
           <Brain className="w-8 h-8 text-primary-600" />
         </div>
         <h2 className="text-2xl font-semibold text-neutral-800 mb-3">
-          ChatBot AI
+          ChatBot AI con Specialisti
         </h2>
         <p className="text-neutral-600 mb-6 leading-relaxed">
-          Un assistente AI intelligente pronto ad aiutarti con qualsiasi domanda o richiesta.
+          Un assistente AI intelligente con routing automatico verso specialisti MBTI/Big Five.
+          Il sistema sceglie automaticamente lo specialista più adatto per la tua richiesta.
         </p>
-        <div className="flex flex-wrap gap-3 justify-center">
+        <div className="flex flex-wrap gap-3 justify-center mb-6">
           {[
-            "Spiegami un concetto complesso",
-            "Aiutami a risolvere un problema",
-            "Scrivi del codice",
-            "Brainstorming creativo"
+            "Ciao, come stai?", // → API Generica
+            "Spiegami React in dettaglio", // → Analitico Tecnico
+            "Scrivi una storia breve", // → Creativo Ideatore  
+            "Verifica questa informazione", // → Verificatore Critico
+            "Ho bisogno di supporto" // → Facilitatore Empatico
           ].map((suggestion, index) => (
             <button
               key={index}
@@ -51,6 +59,9 @@ export default function ChatInterface() {
               {suggestion}
             </button>
           ))}
+        </div>
+        <div className="text-xs text-neutral-500">
+          💡 Suggerimento: Input semplici usano l'API generica, domande complesse attivano gli specialisti
         </div>
       </div>
     </div>
@@ -88,16 +99,32 @@ export default function ChatInterface() {
               </div>
             </div>
 
-            {isLoading && (
-              <div className="flex items-center gap-2 text-sm text-primary-600">
-                <div className="flex space-x-1">
-                  <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse"></div>
-                  <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse delay-75"></div>
-                  <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse delay-150"></div>
+            <div className="flex items-center gap-3">
+              {/* Debug Toggle */}
+              <button
+                onClick={() => setShowDebug(!showDebug)}
+                className={`p-2 rounded-md transition-colors ${
+                  showDebug 
+                    ? 'bg-primary-100 text-primary-600' 
+                    : 'hover:bg-neutral-100 text-neutral-500'
+                }`}
+                title="Toggle Debug Info"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+
+              {/* Loading indicator */}
+              {isLoading && (
+                <div className="flex items-center gap-2 text-sm text-primary-600">
+                  <div className="flex space-x-1">
+                    <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse"></div>
+                    <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse delay-75"></div>
+                    <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse delay-150"></div>
+                  </div>
+                  <span>Elaborando...</span>
                 </div>
-                <span>Sto scrivendo...</span>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
 
@@ -107,6 +134,17 @@ export default function ChatInterface() {
             <EmptyState />
           ) : (
             <div className="max-w-4xl mx-auto px-6 py-8">
+              {/* Error Display */}
+              {error && (
+                <ErrorDisplay 
+                  error={error} 
+                  onClose={clearError}
+                />
+              )}
+              
+              {/* Debug Panel */}
+              <RoutingDebugPanel decision={routingInfo} isVisible={showDebug} />
+              
               {currentSession.messages.map((message) => (
                 <MessageBubble key={message.id} message={message} />
               ))}
