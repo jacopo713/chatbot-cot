@@ -127,9 +127,9 @@ export function useChat() {
     abortControllerRef.current = new AbortController();
 
     try {
-      console.log('🧠 Starting multi-specialist chain of thought process for:', content.substring(0, 50) + '...');
+      console.log('🤖 Starting AI-powered routing for:', content.substring(0, 50) + '...');
 
-      // FASE 1: Multi-Specialist Routing
+      // FASE 1: AI-Powered Routing (con possibile risposta diretta)
       const routingResponse = await fetch('/api/router', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -138,16 +138,34 @@ export function useChat() {
       });
 
       if (!routingResponse.ok) {
-        throw new Error(`Multi-routing failed: ${routingResponse.status}`);
+        throw new Error(`AI routing failed: ${routingResponse.status}`);
       }
       
       const routingData = await routingResponse.json();
       const decision: RouterDecision = routingData.decision;
       setRoutingInfo(decision);
 
-      console.log('📊 Multi-specialist routing decision:', decision);
+      console.log('📊 AI routing decision:', decision);
 
-      // Se usa API generica, mostra messaggio semplice
+      // ✅ NUOVO: Se ha risposta diretta, usala subito
+      if (decision.useGeneric && decision.directResponse) {
+        console.log('⚡ Using direct response from AI router');
+        
+        const directMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          content: decision.directResponse,
+          role: 'assistant',
+          timestamp: new Date(),
+          messageType: 'response'
+        };
+
+        addMessageToSession(sessionId, directMessage);
+        setIsLoading(false);
+        setRoutingInfo(null);
+        return;
+      }
+
+      // Se usa API generica senza risposta diretta, mostra messaggio di fallback
       if (decision.useGeneric) {
         const simpleMessage: Message = {
           id: (Date.now() + 1).toString(),
@@ -168,7 +186,7 @@ Per vedere multiple chain of thought, prova domande più complesse che attivano 
         return;
       }
 
-      // FASE 2: Multiple Chain of Thought in parallelo
+      // FASE 2: Multiple Chain of Thought (resto del codice invariato)
       console.log(`🚀 Creating multi-chain message for ${decision.selectedSpecialists.length} specialists`);
 
       const multiChainMessage: MultiChainMessage = {
@@ -185,11 +203,10 @@ Per vedere multiple chain of thought, prova domande più complesse che attivano 
           weight: specScore.score,
           startTime: new Date(),
         })),
-        activeChainId: '', // Verrà settato dopo
+        activeChainId: '',
         messageType: 'multi-thinking'
       };
 
-      // Setta il primo chain come attivo
       if (multiChainMessage.chainOfThoughts.length > 0) {
         multiChainMessage.activeChainId = multiChainMessage.chainOfThoughts[0].id;
       }
@@ -210,14 +227,13 @@ Per vedere multiple chain of thought, prova domande più complesse che attivano 
 
       console.log('📨 API messages prepared:', { count: apiMessages.length });
 
-      // Esegui le chain of thought in parallelo
+      // Esegui le chain of thought in parallelo (resto identico)
       const chainPromises = decision.selectedSpecialists.map(async (specScore, index) => {
         const chainId = multiChainMessage.chainOfThoughts[index].id;
         
         try {
           console.log(`🤖 Starting chain ${index + 1}/${decision.selectedSpecialists.length}: ${specScore.specialist.name}`);
           
-          // Breve delay scaglionato per evitare rate limiting
           await new Promise(resolve => setTimeout(resolve, index * 500));
 
           const response = await fetch('/api/chat', {
@@ -225,7 +241,7 @@ Per vedere multiple chain of thought, prova domande più complesse che attivano 
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
               messages: apiMessages,
-              specialist: specScore.specialist, // ⚠️ QUESTO È IL FIX PRINCIPALE - passa l'oggetto specialista
+              specialist: specScore.specialist,
               mode: 'thinking'
             }),
             signal: abortControllerRef.current?.signal,
@@ -277,7 +293,6 @@ Per vedere multiple chain of thought, prova domande più complesse che attivano 
             throw new Error('No content received from API');
           }
 
-          // Marca come completato
           updateMultiChainMessage(sessionId, multiChainMessage.id, chainId, {
             isStreaming: false,
             isComplete: true,
@@ -300,7 +315,6 @@ Per vedere multiple chain of thought, prova domande più complesse che attivano 
         }
       });
 
-      // Aspetta completamento di tutte le chain (ma non blocca l'UI)
       Promise.all(chainPromises).then(() => {
         console.log('🎉 All chain of thoughts completed');
       }).catch((error) => {
@@ -308,10 +322,10 @@ Per vedere multiple chain of thought, prova domande più complesse che attivano 
       });
 
     } catch (error: any) {
-      console.error('❌ Error in multi-specialist process:', error);
+      console.error('❌ Error in AI-powered process:', error);
       
       if (error.name !== 'AbortError') {
-        let errorMessage = 'Mi dispiace, si è verificato un errore durante il processo multi-specialista. ';
+        let errorMessage = 'Mi dispiace, si è verificato un errore durante il processo AI. ';
         
         if (error.message?.includes('timeout')) {
           errorMessage += 'Il processo ha impiegato troppo tempo. Riprova con una domanda più semplice.';

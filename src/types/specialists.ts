@@ -43,9 +43,9 @@ export interface RouterDecision {
   complexity: 'low' | 'medium' | 'high';
   reasoning: string;
   activationThreshold: number;
+  directResponse?: string; // ✅ NUOVO: Risposta diretta per casi generici
 }
 
-// ✅ AGGIUNTO: Nuovo campo per multi-competenza
 export interface TokenAnalysis {
   count: number;
   words: number;
@@ -60,7 +60,7 @@ export interface TokenAnalysis {
   emotionalWeight: number;
   urgencyLevel: number;
   domainHints: string[];
-  multiCompetenceBonus?: number; // ✅ NUOVO
+  multiCompetenceBonus?: number;
 }
 
 export interface ChainOfThoughtStep {
@@ -73,7 +73,7 @@ export interface ChainOfThoughtStep {
 
 export interface ChainOfThoughtResponse {
   specialistId: string;
-  specialistName: string;
+  specialistName: string;  
   userInput: string;
   thinkingProcess: ChainOfThoughtStep[];
   finalApproach: string;

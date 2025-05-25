@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { MultiSpecialistRouter } from '@/services/multiSpecialistRouter';
+import { AISpecialistRouter } from '@/services/aiSpecialistRouter';
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,17 +12,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const decision = MultiSpecialistRouter.route(userInput);
+    console.log('🤖 AI-Powered Router API called with:', userInput.substring(0, 100) + '...');
+
+    // Usa il nuovo AI Specialist Router
+    const decision = await AISpecialistRouter.route(userInput);
     
     return NextResponse.json({
       decision,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      routerType: 'ai-powered' // Indica che stiamo usando AI routing
     });
 
   } catch (error) {
-    console.error('Multi-Specialist Router API Error:', error);
+    console.error('❌ AI Specialist Router API Error:', error);
     return NextResponse.json(
-      { error: 'Failed to route request' },
+      { error: 'Failed to route request with AI', debug: error.message },
       { status: 500 }
     );
   }
