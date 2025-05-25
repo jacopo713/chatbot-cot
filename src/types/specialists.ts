@@ -25,15 +25,26 @@ export interface SpecialistProfile {
   bigFive: BigFiveProfile;
   notes: string;
   systemPrompt: string;
-  chainOfThoughtPrompt: string; // Nuovo: prompt specifico per chain of thought
+  chainOfThoughtPrompt: string;
 }
 
+// Nuovo: Punteggio per ogni specialista
+export interface SpecialistScore {
+  specialist: SpecialistProfile;
+  score: number; // 0-1, quanto è adatto per questo input
+  reasoning: string; // Perché ha questo punteggio
+  features: string[]; // Quali feature dell'input hanno influenzato il punteggio
+}
+
+// Modificato: Router decision ora supporta multi-specialisti
 export interface RouterDecision {
   useGeneric: boolean;
-  selectedSpecialist?: SpecialistProfile;
+  selectedSpecialists: SpecialistScore[]; // Array invece di uno solo
+  allScores: SpecialistScore[]; // Tutti i punteggi per debug
   tokenCount: number;
   complexity: 'low' | 'medium' | 'high';
   reasoning: string;
+  activationThreshold: number; // Soglia usata
 }
 
 export interface TokenAnalysis {
@@ -44,6 +55,13 @@ export interface TokenAnalysis {
   hasTechnicalTerms: boolean;
   hasEmotionalContent: boolean;
   requiresCreativity: boolean;
+  // Nuove feature per scoring più preciso
+  technicalWeight: number; // 0-1, quanto è tecnico
+  creativeWeight: number; // 0-1, quanto richiede creatività
+  analyticalWeight: number; // 0-1, quanto richiede analisi
+  emotionalWeight: number; // 0-1, quanto ha contenuto emotivo
+  urgencyLevel: number; // 0-1, livello di urgenza percepito
+  domainHints: string[]; // Domini identificati (es. ["programming", "web-dev"])
 }
 
 // Nuovi tipi per chain of thought

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SpecialistRouter } from '@/services/specialistRouter';
+import { MultiSpecialistRouter } from '@/services/multiSpecialistRouter';
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const decision = SpecialistRouter.route(userInput);
+    const decision = MultiSpecialistRouter.route(userInput);
     
     return NextResponse.json({
       decision,
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Router API Error:', error);
+    console.error('Multi-Specialist Router API Error:', error);
     return NextResponse.json(
       { error: 'Failed to route request' },
       { status: 500 }

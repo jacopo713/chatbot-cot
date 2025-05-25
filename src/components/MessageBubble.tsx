@@ -1,19 +1,33 @@
-import { Message } from '@/types/chat';
+import { Message, MultiChainMessage } from '@/types/chat';
 import { User, Bot, Copy, Check, Brain, Lightbulb, Search } from 'lucide-react';
 import { useState } from 'react';
 import SpecialistIndicator from './SpecialistIndicator';
+import MultiChainDisplay from './MultiChainDisplay';
 
 interface MessageBubbleProps {
-  message: Message;
+  message: Message | MultiChainMessage;
+  onUpdateActiveChain?: (messageId: string, chainId: string) => void;
 }
 
-export default function MessageBubble({ message }: MessageBubbleProps) {
+export default function MessageBubble({ message, onUpdateActiveChain }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
-  const isUser = message.role === 'user';
-  const isThinking = message.messageType === 'thinking';
+
+  // Type guard per MultiChainMessage
+  const isMultiChain = (msg: Message | MultiChainMessage): msg is MultiChainMessage => {
+    return 'chainOfThoughts' in msg;
+  };
+
+  const isUser = !isMultiChain(message) && message.role === 'user';
+  const isThinking = !isMultiChain(message) && message.messageType === 'thinking';
 
   const copyToClipboard = async () => {
-    await navigator.clipboard.writeText(message.content);
+    const content = isMultiChain(message) 
+      ? message.chainOfThoughts.map(chain => 
+          `${chain.specialist.name}:\n${chain.content}`
+        ).join('\n\n---\n\n')
+      : message.content;
+      
+    await navigator.clipboard.writeText(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -25,6 +39,37 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
     });
   };
 
+  // Gestisci MultiChainMessage separatamente
+  if (isMultiChain(message)) {
+    return (
+      <div className="group animate-slide-in mb-6">
+        <MultiChainDisplay 
+          message={message} 
+          onUpdateActiveChain={onUpdateActiveChain || (() => {})}
+        />
+        
+        {/* Footer con timestamp e copy */}
+        <div className="flex items-center justify-between mt-3 px-4">
+          <span className="text-xs text-purple-500">
+            {formatTime(message.timestamp)}
+          </span>
+          <button
+            onClick={copyToClipboard}
+            className="opacity-0 group-hover:opacity-100 p-1 rounded transition-all hover:bg-purple-100"
+            title="Copia tutte le chain of thought"
+          >
+            {copied ? (
+              <Check className="w-3 h-3 text-green-600" />
+            ) : (
+              <Copy className="w-3 h-3 text-purple-500" />
+            )}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Gestione normale per Message singoli
   const getThinkingIcon = () => {
     if (message.phase === 'thinking') return <Brain className="w-4 h-4" />;
     if (message.phase === 'generating') return <Lightbulb className="w-4 h-4" />;
@@ -115,7 +160,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             </div>
           )}
 
-          {/* Message content - Simple text only */}
+          {/* Message content */}
           <div className="whitespace-pre-wrap leading-relaxed">
             {message.content}
           </div>

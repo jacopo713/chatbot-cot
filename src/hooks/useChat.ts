@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { Message, ChatSession } from '@/types/chat';
+import { Message, ChatSession, MultiChainMessage, ChainOfThoughtEntry } from '@/types/chat';
 import { RouterDecision } from '@/types/specialists';
 
 export function useChat() {
@@ -35,35 +35,69 @@ export function useChat() {
     ));
   }, []);
 
-  const addMessageToSession = useCallback((sessionId: string, message: Message) => {
+  const addMessageToSession = useCallback((sessionId: string, message: Message | MultiChainMessage) => {
     setSessions(prev => prev.map(session =>
       session.id === sessionId
         ? {
             ...session,
             messages: [...session.messages, message],
             updatedAt: new Date(),
-            // Traccia uso specialisti
-            specialistUsage: message.specialist ? {
-              ...session.specialistUsage,
-              [message.specialist.id]: (session.specialistUsage?.[message.specialist.id] || 0) + 1
-            } : session.specialistUsage
+            // Traccia uso specialisti per MultiChainMessage
+            specialistUsage: 'chainOfThoughts' in message 
+              ? message.chainOfThoughts.reduce((usage, chain) => ({
+                  ...usage,
+                  [chain.specialist.id]: (usage[chain.specialist.id] || 0) + 1
+                }), session.specialistUsage || {})
+              : 'specialist' in message && message.specialist ? {
+                  ...session.specialistUsage,
+                  [message.specialist.id]: (session.specialistUsage?.[message.specialist.id] || 0) + 1
+                } : session.specialistUsage
           }
         : session
     ));
   }, []);
 
-  const updateMessageInSession = useCallback((sessionId: string, messageId: string, updates: Partial<Message>) => {
+  const updateMultiChainMessage = useCallback((
+    sessionId: string, 
+    messageId: string, 
+    chainId: string, 
+    updates: Partial<ChainOfThoughtEntry>
+  ) => {
     setSessions(prev => prev.map(session =>
       session.id === sessionId
         ? {
             ...session,
             messages: session.messages.map(msg =>
-              msg.id === messageId ? { ...msg, ...updates } : msg
+              msg.id === messageId && 'chainOfThoughts' in msg
+                ? {
+                    ...msg,
+                    chainOfThoughts: msg.chainOfThoughts.map(chain =>
+                      chain.id === chainId ? { ...chain, ...updates } : chain
+                    )
+                  }
+                : msg
             )
           }
         : session
     ));
   }, []);
+
+  const updateActiveChain = useCallback((messageId: string, chainId: string) => {
+    if (!currentSessionId) return;
+
+    setSessions(prev => prev.map(session =>
+      session.id === currentSessionId
+        ? {
+            ...session,
+            messages: session.messages.map(msg =>
+              msg.id === messageId && 'chainOfThoughts' in msg
+                ? { ...msg, activeChainId: chainId }
+                : msg
+            )
+          }
+        : session
+    ));
+  }, [currentSessionId]);
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim()) return;
@@ -93,9 +127,9 @@ export function useChat() {
     abortControllerRef.current = new AbortController();
 
     try {
-      console.log('🧠 Starting chain of thought process for:', content.substring(0, 50) + '...');
+      console.log('🧠 Starting multi-specialist chain of thought process for:', content.substring(0, 50) + '...');
 
-      // FASE 1: Routing
+      // FASE 1: Multi-Specialist Routing
       const routingResponse = await fetch('/api/router', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -104,26 +138,25 @@ export function useChat() {
       });
 
       if (!routingResponse.ok) {
-        throw new Error(`Routing failed: ${routingResponse.status}`);
+        throw new Error(`Multi-routing failed: ${routingResponse.status}`);
       }
       
       const routingData = await routingResponse.json();
       const decision: RouterDecision = routingData.decision;
       setRoutingInfo(decision);
 
-      console.log('📊 Routing decision:', decision);
+      console.log('📊 Multi-specialist routing decision:', decision);
 
-      // Se usa API generica, mostra un messaggio semplice
+      // Se usa API generica, mostra messaggio semplice
       if (decision.useGeneric) {
         const simpleMessage: Message = {
           id: (Date.now() + 1).toString(),
           content: `Input troppo semplice per attivare gli specialisti. 
           
-Per vedere il chain of thought, prova domande più complesse come:
-- "Analizza l'architettura di React" (→ Analitico Tecnico)
-- "Crea una storia originale su..." (→ Creativo Ideatore)  
-- "Verifica se questa informazione è corretta..." (→ Verificatore Critico)
-- "Ho bisogno di supporto per..." (→ Facilitatore Empatico)`,
+Per vedere multiple chain of thought, prova domande più complesse che attivano più specialisti come:
+- "Analizza l'architettura di React e crea contenuti creativi per spiegarla"
+- "Verifica questa informazione tecnica e fornisci supporto per implementarla"
+- "Brainstorm idee innovative per questo problema tecnico complesso"`,
           role: 'assistant',
           timestamp: new Date(),
           messageType: 'response'
@@ -135,102 +168,150 @@ Per vedere il chain of thought, prova domande più complesse come:
         return;
       }
 
-      // FASE 2: Chain of Thought
-      const thinkingMessage: Message = {
+      // FASE 2: Multiple Chain of Thought in parallelo
+      console.log(`🚀 Creating multi-chain message for ${decision.selectedSpecialists.length} specialists`);
+
+      const multiChainMessage: MultiChainMessage = {
         id: (Date.now() + 1).toString(),
-        content: '',
-        role: 'assistant',
+        userMessageId: userMessage.id,
+        role: 'multi-assistant',
         timestamp: new Date(),
-        isStreaming: true,
-        specialist: decision.selectedSpecialist,
-        phase: 'thinking',
-        messageType: 'thinking'
+        chainOfThoughts: decision.selectedSpecialists.map((specScore, index) => ({
+          id: `chain-${specScore.specialist.id}-${Date.now()}-${index}`,
+          specialist: specScore.specialist,
+          content: '',
+          isStreaming: true,
+          isComplete: false,
+          weight: specScore.score,
+          startTime: new Date(),
+        })),
+        activeChainId: '', // Verrà settato dopo
+        messageType: 'multi-thinking'
       };
 
-      addMessageToSession(sessionId, thinkingMessage);
+      // Setta il primo chain come attivo
+      if (multiChainMessage.chainOfThoughts.length > 0) {
+        multiChainMessage.activeChainId = multiChainMessage.chainOfThoughts[0].id;
+      }
 
-      console.log('🤔 Starting thinking phase with specialist:', decision.selectedSpecialist?.name);
+      addMessageToSession(sessionId, multiChainMessage);
 
-      // Breve pausa per mostrare l'attivazione dello specialista
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log(`🚀 Starting ${decision.selectedSpecialists.length} parallel chain of thoughts`);
 
+      // Prepara i messaggi per l'API
       const apiMessages = [
         ...(session?.messages || []),
         userMessage
-      ].map(msg => ({
-        role: msg.role,
-        content: msg.content
-      }));
+      ].filter(msg => 'role' in msg && msg.role !== 'multi-assistant')
+       .map(msg => ({
+         role: (msg as Message).role,
+         content: (msg as Message).content
+       }));
 
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          messages: apiMessages,
-          specialist: decision.selectedSpecialist,
-          mode: 'thinking' // Modalità chain of thought
-        }),
-        signal: abortControllerRef.current?.signal,
-      });
+      console.log('📨 API messages prepared:', { count: apiMessages.length });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
-      }
+      // Esegui le chain of thought in parallelo
+      const chainPromises = decision.selectedSpecialists.map(async (specScore, index) => {
+        const chainId = multiChainMessage.chainOfThoughts[index].id;
+        
+        try {
+          console.log(`🤖 Starting chain ${index + 1}/${decision.selectedSpecialists.length}: ${specScore.specialist.name}`);
+          
+          // Breve delay scaglionato per evitare rate limiting
+          await new Promise(resolve => setTimeout(resolve, index * 500));
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response stream available');
+          const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              messages: apiMessages,
+              specialist: specScore.specialist, // ⚠️ QUESTO È IL FIX PRINCIPALE - passa l'oggetto specialista
+              mode: 'thinking'
+            }),
+            signal: abortControllerRef.current?.signal,
+          });
 
-      let accumulatedContent = '';
-      let hasContent = false;
+          if (!response.ok) {
+            const errorText = await response.text().catch(() => 'Unknown error');
+            throw new Error(`Chain ${specScore.specialist.name} failed: ${response.status} - ${errorText}`);
+          }
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+          const reader = response.body?.getReader();
+          if (!reader) throw new Error('No response stream available');
 
-        const chunk = new TextDecoder().decode(value);
-        const lines = chunk.split('\n').filter(line => line.trim() !== '');
+          let accumulatedContent = '';
+          let hasReceivedData = false;
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') break;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-            try {
-              const parsed = JSON.parse(data);
-              const deltaContent = parsed.choices?.[0]?.delta?.content || '';
-              
-              if (deltaContent) {
-                hasContent = true;
-                accumulatedContent += deltaContent;
-                
-                updateMessageInSession(sessionId, thinkingMessage.id, {
-                  content: accumulatedContent
-                });
+            const chunk = new TextDecoder().decode(value);
+            const lines = chunk.split('\n').filter(line => line.trim() !== '');
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6);
+                if (data === '[DONE]') break;
+
+                try {
+                  const parsed = JSON.parse(data);
+                  const deltaContent = parsed.choices?.[0]?.delta?.content || '';
+                  
+                  if (deltaContent) {
+                    hasReceivedData = true;
+                    accumulatedContent += deltaContent;
+                    
+                    updateMultiChainMessage(sessionId, multiChainMessage.id, chainId, {
+                      content: accumulatedContent
+                    });
+                  }
+                } catch (e) {
+                  console.warn('⚠️ Skipping malformed streaming data for', specScore.specialist.name, ':', e);
+                }
               }
-            } catch (e) {
-              console.warn('Skipping malformed streaming data');
             }
           }
+
+          if (!hasReceivedData) {
+            throw new Error('No content received from API');
+          }
+
+          // Marca come completato
+          updateMultiChainMessage(sessionId, multiChainMessage.id, chainId, {
+            isStreaming: false,
+            isComplete: true,
+            endTime: new Date()
+          });
+
+          console.log(`✅ Chain of thought completed for ${specScore.specialist.name}`);
+
+        } catch (error: any) {
+          console.error(`❌ Error in chain ${specScore.specialist.name}:`, error);
+          
+          if (error.name !== 'AbortError') {
+            updateMultiChainMessage(sessionId, multiChainMessage.id, chainId, {
+              isStreaming: false,
+              isComplete: false,
+              error: error.message || 'Errore sconosciuto',
+              endTime: new Date()
+            });
+          }
         }
-      }
-
-      if (!hasContent) {
-        throw new Error('No content received from API');
-      }
-
-      updateMessageInSession(sessionId, thinkingMessage.id, {
-        isStreaming: false,
-        phase: undefined
       });
 
-      console.log('✅ Chain of thought completed successfully');
+      // Aspetta completamento di tutte le chain (ma non blocca l'UI)
+      Promise.all(chainPromises).then(() => {
+        console.log('🎉 All chain of thoughts completed');
+      }).catch((error) => {
+        console.error('❌ Some chains failed:', error);
+      });
 
     } catch (error: any) {
-      console.error('❌ Error in sendMessage:', error);
+      console.error('❌ Error in multi-specialist process:', error);
       
       if (error.name !== 'AbortError') {
-        let errorMessage = 'Mi dispiace, si è verificato un errore durante il processo di pensiero. ';
+        let errorMessage = 'Mi dispiace, si è verificato un errore durante il processo multi-specialista. ';
         
         if (error.message?.includes('timeout')) {
           errorMessage += 'Il processo ha impiegato troppo tempo. Riprova con una domanda più semplice.';
@@ -241,23 +322,6 @@ Per vedere il chain of thought, prova domande più complesse come:
         }
         
         setError(errorMessage);
-        
-        setSessions(prev => prev.map(session =>
-          session.id === sessionId
-            ? {
-                ...session,
-                messages: session.messages.filter(msg => 
-                  !(msg.role === 'assistant' && msg.content === '' && msg.isStreaming)
-                ).concat([{
-                  id: (Date.now() + 2).toString(),
-                  content: errorMessage,
-                  role: 'assistant',
-                  timestamp: new Date(),
-                  messageType: 'response'
-                }])
-              }
-            : session
-        ));
       }
     } finally {
       setIsLoading(false);
@@ -270,7 +334,7 @@ Per vedere il chain of thought, prova domande più complesse come:
     createNewSession,
     updateSessionTitle,
     addMessageToSession,
-    updateMessageInSession
+    updateMultiChainMessage
   ]);
 
   const stopGeneration = useCallback(() => {
@@ -307,5 +371,6 @@ Per vedere il chain of thought, prova domande più complesse come:
     selectSession,
     deleteSession,
     clearError,
+    updateActiveChain,
   };
 }

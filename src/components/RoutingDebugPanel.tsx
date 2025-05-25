@@ -1,5 +1,5 @@
 import { RouterDecision } from '@/types/specialists';
-import { Info, Zap, Brain, MessageCircle } from 'lucide-react';
+import { Info, Zap, Brain, MessageCircle, Users } from 'lucide-react';
 import { useState } from 'react';
 
 interface RoutingDebugPanelProps {
@@ -20,7 +20,10 @@ export default function RoutingDebugPanel({ decision, isVisible = false }: Routi
       >
         <Info className="w-4 h-4 text-neutral-500" />
         <span className="font-medium text-neutral-700">
-          Routing Info - {decision.useGeneric ? 'API Generica' : decision.selectedSpecialist?.name}
+          Multi-Specialist Routing - {decision.useGeneric 
+            ? 'API Generica' 
+            : `${decision.selectedSpecialists.length} Specialisti Attivati`
+          }
         </span>
         <div className={`ml-auto transform transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
           ▼
@@ -28,7 +31,7 @@ export default function RoutingDebugPanel({ decision, isVisible = false }: Routi
       </button>
 
       {isExpanded && (
-        <div className="mt-3 space-y-2 pl-6">
+        <div className="mt-3 space-y-3 pl-6">
           <div className="flex items-center gap-2">
             <MessageCircle className="w-4 h-4 text-blue-500" />
             <span>Token Count: <strong>{decision.tokenCount}</strong></span>
@@ -44,11 +47,50 @@ export default function RoutingDebugPanel({ decision, isVisible = false }: Routi
             </strong></span>
           </div>
 
-          {decision.selectedSpecialist && (
-            <div className="flex items-center gap-2">
-              <Brain className="w-4 h-4 text-purple-500" />
-              <span>Specialist: <strong>{decision.selectedSpecialist.name}</strong> ({decision.selectedSpecialist.mbti})</span>
-            </div>
+          {!decision.useGeneric && decision.selectedSpecialists.length > 0 && (
+            <>
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-purple-500" />
+                <span>Soglia Attivazione: <strong>{(decision.activationThreshold * 100).toFixed(0)}%</strong></span>
+              </div>
+
+              <div className="bg-neutral-100 p-3 rounded">
+                <strong className="text-neutral-700 block mb-2">Specialisti Attivati:</strong>
+                <div className="space-y-2">
+                  {decision.selectedSpecialists.map((specScore) => (
+                    <div key={specScore.specialist.id} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Brain className="w-4 h-4 text-purple-500" />
+                        <span className="font-medium">{specScore.specialist.name}</span>
+                        <span className="text-xs text-gray-500">({specScore.specialist.mbti})</span>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-bold text-purple-600">
+                          {(specScore.score * 100).toFixed(0)}%
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {specScore.features.join(', ')}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-neutral-100 p-3 rounded">
+                <strong className="text-neutral-700 block mb-1">Tutti i Punteggi:</strong>
+                <div className="space-y-1 text-xs">
+                  {decision.allScores.map((score) => (
+                    <div key={score.specialist.id} className="flex justify-between">
+                      <span>{score.specialist.name}:</span>
+                      <span className={score.score >= decision.activationThreshold ? 'text-green-600 font-bold' : 'text-gray-500'}>
+                        {(score.score * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
           )}
 
           <div className="bg-neutral-100 p-2 rounded text-xs">

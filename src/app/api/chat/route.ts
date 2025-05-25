@@ -12,45 +12,50 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    console.log('🤖 Chat API called with:', {
+      messageCount: messages.length,
+      specialist: specialist?.name || 'generic',
+      mode: mode
+    });
+
     // Prepara i messaggi per l'API
     let apiMessages = messages;
     
-    // Per la modalità thinking, usa il chainOfThoughtPrompt
+    // IMPORTANTE: Per la modalità thinking, usa SEMPRE chainOfThoughtPrompt
     if (specialist && mode === 'thinking') {
-      const systemPrompt = specialist.chainOfThoughtPrompt || specialist.systemPrompt;
+      if (!specialist.chainOfThoughtPrompt) {
+        throw new Error(`Specialist ${specialist.name} missing chainOfThoughtPrompt`);
+      }
+
+      const systemPrompt = specialist.chainOfThoughtPrompt;
       
       apiMessages = [
         { 
           role: 'system', 
-          content: `${systemPrompt}
-
-IMPORTANTE: 
-- NON fornire mai la risposta finale alla domanda
-- Mostra SOLO il tuo processo di pensiero interno
-- Usa la struttura delle fasi indicate
-- Termina sempre con la frase conclusiva specifica del tuo ruolo
-- Questo aiuta lo sviluppatore a capire come ragioni`
+          content: systemPrompt
         },
         ...messages
       ];
+
+      console.log('🧠 Using chainOfThoughtPrompt for', specialist.name);
     } else if (specialist?.systemPrompt) {
       // Modalità normale (se mai servisse)
       apiMessages = [
         { role: 'system', content: specialist.systemPrompt },
         ...messages
       ];
+      console.log('💬 Using systemPrompt for', specialist.name);
     }
 
-    console.log('Sending request to DeepSeek API...', {
-      messageCount: apiMessages.length,
-      hasSpecialist: !!specialist,
-      specialist: specialist?.name || 'generic',
-      mode: mode
+    console.log('📤 Sending to DeepSeek:', {
+      systemPromptLength: apiMessages[0]?.content?.length || 0,
+      mode: mode,
+      specialist: specialist?.name
     });
 
     // Configurazione con timeout ridotto per chain of thought
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 secondi
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 secondi
 
     const response = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
@@ -62,8 +67,16 @@ IMPORTANTE:
         model: 'deepseek-chat',
         messages: apiMessages,
         stream: true,
-        temperature: mode === 'thinking' ? 0.8 : 0.7, // Più creatività per thinking
-        max_tokens: mode === 'thinking' ? 1200 : 1500,
+        temperature: mode === 'thinking' ? 0.9 : 0.7, // Più creatività per thinking
+        max_tokens: mode === 'thinking' ? 1500 : 2000,
+        // Aggiungiamo stop sequences per evitare che dia risposte finali
+        stop: mode === 'thinking' ? [
+          "Risposta finale:",
+          "La mia risposta è:",
+          "In conclusione:",
+          "Per rispondere alla tua domanda:",
+          "Ecco la soluzione:"
+        ] : undefined
       }),
       signal: controller.signal
     });
@@ -71,8 +84,9 @@ IMPORTANTE:
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      console.error('DeepSeek API error:', response.status, response.statusText);
-      throw new Error(`DeepSeek API error: ${response.status} ${response.statusText}`);
+      console.error('❌ DeepSeek API error:', response.status, response.statusText);
+      const errorText = await response.text().catch(() => 'Unknown error');
+      throw new Error(`DeepSeek API error: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
     // Stream processing
@@ -114,11 +128,12 @@ IMPORTANTE:
                   if (parsed.choices?.[0]?.delta?.content) {
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({
                       ...parsed,
-                      mode: mode // Includi modalità nel response
+                      mode: mode, // Includi modalità nel response
+                      specialist: specialist?.name || 'generic'
                     })}\n\n`));
                   }
                 } catch (e) {
-                  console.warn('Skipping malformed JSON:', data);
+                  console.warn('⚠️ Skipping malformed JSON:', data.substring(0, 100) + '...');
                 }
               }
             }
@@ -126,7 +141,7 @@ IMPORTANTE:
           
           controller.close();
         } catch (error) {
-          console.error('Stream error:', error);
+          console.error('❌ Stream error:', error);
           controller.error(error);
         } finally {
           reader.releaseLock();
@@ -143,7 +158,7 @@ IMPORTANTE:
     });
 
   } catch (error: any) {
-    console.error('API Error:', error);
+    console.error('❌ Chat API Error:', error);
     
     let errorMessage = 'Failed to process request';
     let statusCode = 500;
@@ -157,6 +172,9 @@ IMPORTANTE:
     } else if (error.message?.includes('fetch failed')) {
       errorMessage = 'Network connection error - please check your connection';
       statusCode = 503;
+    } else if (error.message?.includes('chainOfThoughtPrompt')) {
+      errorMessage = 'Specialist configuration error: ' + error.message;
+      statusCode = 500;
     }
 
     return NextResponse.json(
