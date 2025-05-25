@@ -72,18 +72,16 @@ Analizza tutte le catene di pensiero e fornisci la sintesi ottimale in formato J
         }
       });
 
-      // ✅ MODIFICATO: Filtro più permissivo e con logging
+      // ✅ MODIFICATO: Filtro molto più permissivo
       const validChains = request.chainOfThoughts.filter(chain => {
-        const hasContent = chain.content && chain.content.trim().length > 10; // Almeno 10 caratteri
-        const isCompleteOrHasContent = chain.isComplete || hasContent; // Anche se non marcata complete ma ha contenuto
-        const noError = !chain.error;
+        const hasMinimalContent = chain.content && chain.content.trim().length > 5; // Solo 5 caratteri minimi
+        const noBlockingError = !chain.error || chain.content; // Accetta anche chain con errore se hanno contenuto
         
-        const isValid = hasContent && isCompleteOrHasContent && noError;
+        const isValid = hasMinimalContent && noBlockingError;
         
         console.log(`  Chain ${chain.specialist.name} validation:`, {
-          hasContent,
-          isCompleteOrHasContent,
-          noError,
+          hasMinimalContent,
+          noBlockingError,
           isValid
         });
         
@@ -93,16 +91,23 @@ Analizza tutte le catene di pensiero e fornisci la sintesi ottimale in formato J
       console.log(`✅ Valid chains after filtering: ${validChains.length}/${request.chainOfThoughts.length}`);
 
       if (validChains.length === 0) {
-        console.log('❌ No valid chains - attempting fallback with any available content...');
+        console.log('❌ No valid chains - attempting super-permissive fallback...');
         
-        // ✅ NUOVO: Fallback ancora più permissivo - usa chain con qualsiasi contenuto
-        const chainsWithContent = request.chainOfThoughts.filter(chain => 
+        // ✅ SUPER-FALLBACK: Usa qualsiasi chain con anche 1 carattere
+        const anyChainsWithContent = request.chainOfThoughts.filter(chain => 
           chain.content && chain.content.trim().length > 0
         );
         
-        if (chainsWithContent.length > 0) {
-          console.log(`🔄 Found ${chainsWithContent.length} chains with some content, using those`);
-          return this.fallbackSynthesis({ ...request, chainOfThoughts: chainsWithContent });
+        if (anyChainsWithContent.length > 0) {
+          console.log(`🔄 Found ${anyChainsWithContent.length} chains with any content, using those`);
+          return this.fallbackSynthesis({ ...request, chainOfThoughts: anyChainsWithContent });
+        }
+        
+        // ✅ ULTIMO-FALLBACK: Se proprio non c'è niente, usa le chain "complete" anche senza contenuto
+        const completedChains = request.chainOfThoughts.filter(chain => chain.isComplete);
+        if (completedChains.length > 0) {
+          console.log(`🆘 Using ${completedChains.length} completed chains as last resort`);
+          return this.emergencyFallback(request.userQuery, completedChains);
         }
         
         throw new Error('No valid chain of thoughts to synthesize');
@@ -205,6 +210,31 @@ Analizza tutte le catene di pensiero e fornisci la sintesi ottimale in formato J
     }
   }
 
+  // ✅ NUOVO: Fallback di emergenza per chain complete senza contenuto
+  private static emergencyFallback(userQuery: string, completedChains: ChainOfThoughtEntry[]): SynthesisResponse {
+    console.log('🆘 Using emergency fallback - chains completed but no content');
+    
+    const specialistNames = completedChains.map(c => c.specialist.name).join(', ');
+    
+    return {
+      finalAnswer: `Gli specialisti ${specialistNames} hanno processato la tua richiesta "${userQuery}", ma si è verificato un problema nel recuperare il contenuto delle loro analisi. 
+
+Questo può accadere per problemi di timing o di connessione. Ti consiglio di:
+
+1. **Riprovare la stessa domanda** - Spesso una nuova richiesta risolve il problema
+2. **Riformulare la domanda** - Prova con parole diverse o più specifiche
+3. **Controllare la connessione** - Assicurati che la connessione internet sia stabile
+
+Gli specialisti sono stati attivati correttamente, quindi il sistema di routing AI funziona bene.`,
+      synthesisReasoning: 'Emergency fallback - specialists activated but content not available',
+      specialistsUsed: completedChains.map(c => c.specialist.name),
+      weightDistribution: completedChains.reduce((acc, chain) => {
+        acc[chain.specialist.id] = chain.weight;
+        return acc;
+      }, {} as { [key: string]: number })
+    };
+  }
+
   private static fallbackSynthesis(request: SynthesisRequest): SynthesisResponse {
     console.log('🔄 Using fallback synthesis method');
     
@@ -217,8 +247,20 @@ Analizza tutte le catene di pensiero e fornisci la sintesi ottimale in formato J
 
     if (chainsWithContent.length === 0) {
       return {
-        finalAnswer: 'Mi dispiace, non sono riuscito a processare adeguatamente le catene di pensiero degli specialisti. Le chiamate API sono state completate ma il contenuto non è disponibile. Questo potrebbe essere un problema temporaneo - prova a riformulare la domanda.',
-        synthesisReasoning: 'No chains with content available - possible timing or content issue',
+        finalAnswer: `Ho processato la tua richiesta "${request.userQuery}" ma non sono riuscito a recuperare il contenuto delle analisi degli specialisti. 
+
+Questo potrebbe essere dovuto a:
+- Problemi temporanei di connessione con i servizi AI
+- Timing issue tra i diversi processi
+- Sovraccarico dei server DeepSeek
+
+**Suggerimenti:**
+- Riprova con la stessa domanda
+- Assicurati che la connessione internet sia stabile
+- Se il problema persiste, prova a riformulare la domanda
+
+Il sistema di routing AI ha funzionato correttamente, identificando gli specialisti appropriati per la tua richiesta.`,
+        synthesisReasoning: 'No chains with content available - possible timing or connection issue',
         specialistsUsed: [],
         weightDistribution: {}
       };
@@ -228,20 +270,22 @@ Analizza tutte le catene di pensiero e fornisci la sintesi ottimale in formato J
     const sortedChains = chainsWithContent.sort((a, b) => b.weight - a.weight);
     const mainInsight = sortedChains[0];
     
-    let fallbackAnswer = `**Sintesi basata su ${chainsWithContent.length} specialista/i:**\n\n`;
+    let fallbackAnswer = `**Sintesi AI da ${chainsWithContent.length} specialista/i:**\n\n`;
     
     // Aggiungi insight principale
-    fallbackAnswer += `**${mainInsight.specialist.name}** (peso principale: ${(mainInsight.weight * 100).toFixed(0)}%):\n`;
-    fallbackAnswer += `${mainInsight.content.substring(0, 500)}${mainInsight.content.length > 500 ? '...' : ''}\n\n`;
+    fallbackAnswer += `## ${mainInsight.specialist.name} (Specialista principale - ${(mainInsight.weight * 100).toFixed(0)}%)\n`;
+    fallbackAnswer += `${mainInsight.content.substring(0, 800)}${mainInsight.content.length > 800 ? '...' : ''}\n\n`;
     
     // Aggiungi insight complementari
     if (sortedChains.length > 1) {
-      fallbackAnswer += `**Considerazioni aggiuntive:**\n`;
+      fallbackAnswer += `## Considerazioni aggiuntive:\n\n`;
       sortedChains.slice(1).forEach(chain => {
-        fallbackAnswer += `\n**${chain.specialist.name}** (${(chain.weight * 100).toFixed(0)}%):\n`;
-        fallbackAnswer += `${chain.content.substring(0, 300)}${chain.content.length > 300 ? '...' : ''}\n`;
+        fallbackAnswer += `### ${chain.specialist.name} (${(chain.weight * 100).toFixed(0)}%)\n`;
+        fallbackAnswer += `${chain.content.substring(0, 500)}${chain.content.length > 500 ? '...' : ''}\n\n`;
       });
     }
+
+    fallbackAnswer += `\n---\n*Sintesi automatica generata dal fallback system - ${chainsWithContent.length} specialisti hanno contribuito con i loro insight.*`;
 
     const weightDistribution: { [specialistId: string]: number } = {};
     chainsWithContent.forEach(chain => {
@@ -250,7 +294,7 @@ Analizza tutte le catene di pensiero e fornisci la sintesi ottimale in formato J
 
     return {
       finalAnswer: fallbackAnswer,
-      synthesisReasoning: `Fallback synthesis usando ${chainsWithContent.length} chain con contenuto disponibile`,
+      synthesisReasoning: `Fallback synthesis usando ${chainsWithContent.length} chain con contenuto disponibile. Sintesi concatenativa con priorità basata sui pesi degli specialisti.`,
       specialistsUsed: chainsWithContent.map(chain => chain.specialist.name),
       weightDistribution
     };

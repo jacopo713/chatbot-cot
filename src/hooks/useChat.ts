@@ -9,6 +9,16 @@ export function useChat() {
   const [routingInfo, setRoutingInfo] = useState<RouterDecision | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  
+  // ✅ NUOVO: Ref per tracciare chain content in tempo reale
+  const chainContentRef = useRef<Map<string, {
+    chainId: string;
+    specialist: any;
+    content: string;
+    isComplete: boolean;
+    weight: number;
+    error?: string;
+  }>>(new Map());
 
   const currentSession = sessions.find(s => s.id === currentSessionId);
 
@@ -63,6 +73,17 @@ export function useChat() {
     chainId: string, 
     updates: Partial<ChainOfThoughtEntry>
   ) => {
+    // ✅ NUOVO: Aggiorna anche la ref per il tracking in tempo reale
+    const currentChain = chainContentRef.current.get(chainId);
+    if (currentChain) {
+      chainContentRef.current.set(chainId, {
+        ...currentChain,
+        content: updates.content || currentChain.content,
+        isComplete: updates.isComplete || currentChain.isComplete,
+        error: updates.error || currentChain.error
+      });
+    }
+
     setSessions(prev => prev.map(session =>
       session.id === sessionId
         ? {
@@ -121,27 +142,47 @@ export function useChat() {
     ));
   }, [currentSessionId]);
 
-  // ✅ MIGLIORATO: Funzione per avviare la sintesi con debug aggiuntivo
+  // ✅ MIGLIORATO: Sintesi usando chain content in tempo reale invece dello stato React
   const triggerSynthesis = useCallback(async (
     sessionId: string,
-    multiChainMessage: MultiChainMessage,
-    userQuery: string
+    messageId: string,
+    userQuery: string,
+    chainIds: string[]
   ) => {
     try {
-      console.log('🧠 Starting synthesis for completed chains...');
+      console.log('🧠 Starting synthesis with real-time chain content...');
       
-      // ✅ DEBUGGING: Log stato corrente delle chain prima della sintesi
-      console.log('🔍 Pre-synthesis chain state:');
-      multiChainMessage.chainOfThoughts.forEach((chain, index) => {
+      // ✅ NUOVO: Costruisci chainOfThoughts dalla ref invece dello stato React
+      const chainOfThoughts: ChainOfThoughtEntry[] = chainIds.map(chainId => {
+        const chainData = chainContentRef.current.get(chainId);
+        if (!chainData) {
+          console.warn(`⚠️ Chain ${chainId} not found in ref`);
+          return null;
+        }
+
+        return {
+          id: chainData.chainId,
+          specialist: chainData.specialist,
+          content: chainData.content,
+          isStreaming: false,
+          isComplete: chainData.isComplete,
+          weight: chainData.weight,
+          startTime: new Date(), // Placeholder, non critico per sintesi
+          error: chainData.error
+        };
+      }).filter(Boolean) as ChainOfThoughtEntry[];
+
+      console.log('🔍 Real-time synthesis chain state:');
+      chainOfThoughts.forEach((chain, index) => {
         console.log(`  Chain ${index + 1} (${chain.specialist.name}):`);
         console.log(`    - Content length: ${chain.content?.length || 0}`);
         console.log(`    - Is complete: ${chain.isComplete}`);
         console.log(`    - Has error: ${!!chain.error}`);
-        console.log(`    - Is streaming: ${chain.isStreaming}`);
+        console.log(`    - Weight: ${chain.weight}`);
       });
       
       // Aggiorna status a processing
-      updateMultiChainStatus(sessionId, multiChainMessage.id, {
+      updateMultiChainStatus(sessionId, messageId, {
         synthesisStatus: 'processing'
       });
 
@@ -150,7 +191,7 @@ export function useChat() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userQuery,
-          chainOfThoughts: multiChainMessage.chainOfThoughts
+          chainOfThoughts
         }),
       });
 
@@ -175,7 +216,7 @@ export function useChat() {
       };
 
       // Aggiorna il messaggio con la sintesi completata
-      updateMultiChainStatus(sessionId, multiChainMessage.id, {
+      updateMultiChainStatus(sessionId, messageId, {
         synthesisStatus: 'completed',
         finalSynthesis
       });
@@ -183,7 +224,7 @@ export function useChat() {
     } catch (error: any) {
       console.error('❌ Synthesis Error:', error);
       
-      updateMultiChainStatus(sessionId, multiChainMessage.id, {
+      updateMultiChainStatus(sessionId, messageId, {
         synthesisStatus: 'failed'
       });
 
@@ -298,7 +339,7 @@ Per vedere multiple chain of thought con sintesi finale, prova domande più comp
         })),
         activeChainId: '',
         messageType: 'multi-thinking',
-        synthesisStatus: 'pending' // ✅ NUOVO: Inizializza status sintesi
+        synthesisStatus: 'pending'
       };
 
       if (multiChainMessage.chainOfThoughts.length > 0) {
@@ -306,6 +347,18 @@ Per vedere multiple chain of thought con sintesi finale, prova domande più comp
       }
 
       addMessageToSession(sessionId, multiChainMessage);
+
+      // ✅ NUOVO: Inizializza chain content ref
+      chainContentRef.current.clear();
+      multiChainMessage.chainOfThoughts.forEach(chain => {
+        chainContentRef.current.set(chain.id, {
+          chainId: chain.id,
+          specialist: chain.specialist,
+          content: '',
+          isComplete: false,
+          weight: chain.weight
+        });
+      });
 
       console.log(`🚀 Starting ${decision.selectedSpecialists.length} parallel chain of thoughts`);
 
@@ -321,9 +374,10 @@ Per vedere multiple chain of thought con sintesi finale, prova domande più comp
 
       console.log('📨 API messages prepared:', { count: apiMessages.length });
 
-      // ✅ MIGLIORATO: Track completion delle chain per trigger sintesi
+      // ✅ NUOVO: Track completion più robusto
       let completedChains = 0;
       const totalChains = decision.selectedSpecialists.length;
+      const chainIds = multiChainMessage.chainOfThoughts.map(c => c.id);
 
       // Esegui le chain of thought in parallelo
       const chainPromises = decision.selectedSpecialists.map(async (specScore, index) => {
@@ -376,6 +430,7 @@ Per vedere multiple chain of thought con sintesi finale, prova domande più comp
                     hasReceivedData = true;
                     accumulatedContent += deltaContent;
                     
+                    // ✅ AGGIORNA: Sia lo stato React che la ref
                     updateMultiChainMessage(sessionId, multiChainMessage.id, chainId, {
                       content: accumulatedContent
                     });
@@ -391,7 +446,7 @@ Per vedere multiple chain of thought con sintesi finale, prova domande più comp
             throw new Error('No content received from API');
           }
 
-          // ✅ MIGLIORATO: Update finale con flag complete
+          // ✅ MIGLIORATO: Update finale completo
           updateMultiChainMessage(sessionId, multiChainMessage.id, chainId, {
             content: accumulatedContent,
             isStreaming: false,
@@ -401,31 +456,32 @@ Per vedere multiple chain of thought con sintesi finale, prova domande più comp
 
           console.log(`✅ Chain of thought completed for ${specScore.specialist.name} (${accumulatedContent.length} chars)`);
 
-          // ✅ MIGLIORATO: Check se tutte le chain sono complete per trigger sintesi
+          // ✅ NUOVO: Check completion più affidabile
           completedChains++;
           console.log(`📊 Completed chains: ${completedChains}/${totalChains}`);
           
           if (completedChains === totalChains) {
             console.log('🎯 All chains completed, triggering synthesis...');
-            // ✅ AUMENTATO: Delay da 1s a 3s per assicurare tutti gli update
+            // ✅ NUOVO: Delay ridotto e sintesi diretta
             setTimeout(() => {
-              // Trova il messaggio aggiornato per essere sicuri di avere lo stato più recente
-              const updatedSession = sessions.find(s => s.id === sessionId);
-              const updatedMessage = updatedSession?.messages.find(m => m.id === multiChainMessage.id) as MultiChainMessage;
-              
-              if (updatedMessage && 'chainOfThoughts' in updatedMessage) {
-                triggerSynthesis(sessionId, updatedMessage, content);
-              } else {
-                console.error('❌ Could not find updated multichain message for synthesis');
-                triggerSynthesis(sessionId, multiChainMessage, content); // Fallback
-              }
-            }, 3000); // 3 secondi di delay
+              triggerSynthesis(sessionId, multiChainMessage.id, content, chainIds);
+            }, 1000); // Ridotto a 1 secondo
           }
 
         } catch (error: any) {
           console.error(`❌ Error in chain ${specScore.specialist.name}:`, error);
           
           if (error.name !== 'AbortError') {
+            // ✅ AGGIORNA: Anche errori nella ref
+            const chainData = chainContentRef.current.get(chainId);
+            if (chainData) {
+              chainContentRef.current.set(chainId, {
+                ...chainData,
+                error: error.message || 'Errore sconosciuto',
+                isComplete: false
+              });
+            }
+
             updateMultiChainMessage(sessionId, multiChainMessage.id, chainId, {
               isStreaming: false,
               isComplete: false,
@@ -440,8 +496,8 @@ Per vedere multiple chain of thought con sintesi finale, prova domande più comp
             if (completedChains === totalChains) {
               console.log('🎯 All chains processed (some with errors), triggering synthesis...');
               setTimeout(() => {
-                triggerSynthesis(sessionId, multiChainMessage, content);
-              }, 3000); // Stesso delay anche per errori
+                triggerSynthesis(sessionId, multiChainMessage.id, content, chainIds);
+              }, 1000);
             }
           }
         }
@@ -493,12 +549,15 @@ Per vedere multiple chain of thought con sintesi finale, prova domande più comp
   const selectSession = useCallback((sessionId: string) => {
     setCurrentSessionId(sessionId);
     setError(null);
+    // ✅ NUOVO: Pulisci chain content ref quando cambi sessione
+    chainContentRef.current.clear();
   }, []);
 
   const deleteSession = useCallback((sessionId: string) => {
     setSessions(prev => prev.filter(s => s.id !== sessionId));
     if (currentSessionId === sessionId) {
       setCurrentSessionId(null);
+      chainContentRef.current.clear();
     }
   }, [currentSessionId]);
 
