@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { Message, ChatSession, MultiChainMessage, ChainOfThoughtEntry } from '@/types/chat';
+import { Message, ChatSession, MultiChainMessage, ChainOfThoughtEntry, FinalSynthesis } from '@/types/chat';
 import { RouterDecision } from '@/types/specialists';
 
 export function useChat() {
@@ -82,6 +82,28 @@ export function useChat() {
     ));
   }, []);
 
+  const updateMultiChainStatus = useCallback((
+    sessionId: string,
+    messageId: string,
+    updates: {
+      synthesisStatus?: 'pending' | 'processing' | 'completed' | 'failed';
+      finalSynthesis?: FinalSynthesis;
+    }
+  ) => {
+    setSessions(prev => prev.map(session =>
+      session.id === sessionId
+        ? {
+            ...session,
+            messages: session.messages.map(msg =>
+              msg.id === messageId && 'chainOfThoughts' in msg
+                ? { ...msg, ...updates }
+                : msg
+            )
+          }
+        : session
+    ));
+  }, []);
+
   const updateActiveChain = useCallback((messageId: string, chainId: string) => {
     if (!currentSessionId) return;
 
@@ -98,6 +120,67 @@ export function useChat() {
         : session
     ));
   }, [currentSessionId]);
+
+  // ✅ NUOVO: Funzione per avviare la sintesi quando tutte le chain sono complete
+  const triggerSynthesis = useCallback(async (
+    sessionId: string,
+    multiChainMessage: MultiChainMessage,
+    userQuery: string
+  ) => {
+    try {
+      console.log('🧠 Starting synthesis for completed chains...');
+      
+      // Aggiorna status a processing
+      updateMultiChainStatus(sessionId, multiChainMessage.id, {
+        synthesisStatus: 'processing'
+      });
+
+      const response = await fetch('/api/synthesize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userQuery,
+          chainOfThoughts: multiChainMessage.chainOfThoughts
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Synthesis API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const synthesis = data.synthesis;
+
+      console.log('✅ Synthesis completed successfully');
+
+      // Crea oggetto FinalSynthesis
+      const finalSynthesis: FinalSynthesis = {
+        id: `synthesis-${Date.now()}`,
+        content: synthesis.finalAnswer,
+        synthesisReasoning: synthesis.synthesisReasoning,
+        specialistsUsed: synthesis.specialistsUsed,
+        weightDistribution: synthesis.weightDistribution,
+        timestamp: new Date(),
+        isVisible: true // Mostra automaticamente la sintesi finale
+      };
+
+      // Aggiorna il messaggio con la sintesi completata
+      updateMultiChainStatus(sessionId, multiChainMessage.id, {
+        synthesisStatus: 'completed',
+        finalSynthesis
+      });
+
+    } catch (error: any) {
+      console.error('❌ Synthesis Error:', error);
+      
+      updateMultiChainStatus(sessionId, multiChainMessage.id, {
+        synthesisStatus: 'failed'
+      });
+
+      // Mostra errore all'utente ma non blocca l'esperienza
+      setError(`Sintesi fallita: ${error.message || 'Errore sconosciuto'}. Le chain of thought individuali restano disponibili.`);
+    }
+  }, [updateMultiChainStatus]);
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim()) return;
@@ -171,7 +254,7 @@ export function useChat() {
           id: (Date.now() + 1).toString(),
           content: `Input troppo semplice per attivare gli specialisti. 
           
-Per vedere multiple chain of thought, prova domande più complesse che attivano più specialisti come:
+Per vedere multiple chain of thought con sintesi finale, prova domande più complesse che attivano più specialisti come:
 - "Analizza l'architettura di React e crea contenuti creativi per spiegarla"
 - "Verifica questa informazione tecnica e fornisci supporto per implementarla"
 - "Brainstorm idee innovative per questo problema tecnico complesso"`,
@@ -186,7 +269,7 @@ Per vedere multiple chain of thought, prova domande più complesse che attivano 
         return;
       }
 
-      // FASE 2: Multiple Chain of Thought (resto del codice invariato)
+      // FASE 2: Multiple Chain of Thought
       console.log(`🚀 Creating multi-chain message for ${decision.selectedSpecialists.length} specialists`);
 
       const multiChainMessage: MultiChainMessage = {
@@ -204,7 +287,8 @@ Per vedere multiple chain of thought, prova domande più complesse che attivano 
           startTime: new Date(),
         })),
         activeChainId: '',
-        messageType: 'multi-thinking'
+        messageType: 'multi-thinking',
+        synthesisStatus: 'pending' // ✅ NUOVO: Inizializza status sintesi
       };
 
       if (multiChainMessage.chainOfThoughts.length > 0) {
@@ -227,7 +311,11 @@ Per vedere multiple chain of thought, prova domande più complesse che attivano 
 
       console.log('📨 API messages prepared:', { count: apiMessages.length });
 
-      // Esegui le chain of thought in parallelo (resto identico)
+      // ✅ NUOVO: Track completion delle chain per trigger sintesi
+      let completedChains = 0;
+      const totalChains = decision.selectedSpecialists.length;
+
+      // Esegui le chain of thought in parallelo
       const chainPromises = decision.selectedSpecialists.map(async (specScore, index) => {
         const chainId = multiChainMessage.chainOfThoughts[index].id;
         
@@ -301,6 +389,18 @@ Per vedere multiple chain of thought, prova domande più complesse che attivano 
 
           console.log(`✅ Chain of thought completed for ${specScore.specialist.name}`);
 
+          // ✅ NUOVO: Check se tutte le chain sono complete per trigger sintesi
+          completedChains++;
+          console.log(`📊 Completed chains: ${completedChains}/${totalChains}`);
+          
+          if (completedChains === totalChains) {
+            console.log('🎯 All chains completed, triggering synthesis...');
+            // Piccolo delay per assicurarsi che tutti gli update UI siano processati
+            setTimeout(() => {
+              triggerSynthesis(sessionId, multiChainMessage, content);
+            }, 1000);
+          }
+
         } catch (error: any) {
           console.error(`❌ Error in chain ${specScore.specialist.name}:`, error);
           
@@ -311,12 +411,23 @@ Per vedere multiple chain of thought, prova domande più complesse che attivano 
               error: error.message || 'Errore sconosciuto',
               endTime: new Date()
             });
+
+            // ✅ NUOVO: Anche le chain fallite contano per il completamento
+            completedChains++;
+            console.log(`📊 Completed chains (with error): ${completedChains}/${totalChains}`);
+            
+            if (completedChains === totalChains) {
+              console.log('🎯 All chains processed (some with errors), triggering synthesis...');
+              setTimeout(() => {
+                triggerSynthesis(sessionId, multiChainMessage, content);
+              }, 1000);
+            }
           }
         }
       });
 
       Promise.all(chainPromises).then(() => {
-        console.log('🎉 All chain of thoughts completed');
+        console.log('🎉 All chain of thoughts processing completed');
       }).catch((error) => {
         console.error('❌ Some chains failed:', error);
       });
@@ -348,7 +459,8 @@ Per vedere multiple chain of thought, prova domande più complesse che attivano 
     createNewSession,
     updateSessionTitle,
     addMessageToSession,
-    updateMultiChainMessage
+    updateMultiChainMessage,
+    triggerSynthesis
   ]);
 
   const stopGeneration = useCallback(() => {

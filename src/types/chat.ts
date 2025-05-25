@@ -10,6 +10,14 @@ export interface Message {
   phase?: 'analytical' | 'generating' | 'thinking';
   chainOfThought?: ChainOfThoughtResponse;
   messageType?: 'response' | 'thinking' | 'metacognition';
+  synthesisInfo?: SynthesisInfo;
+}
+
+export interface SynthesisInfo {
+  synthesisReasoning: string;
+  specialistsUsed: string[];
+  weightDistribution: { [specialistId: string]: number };
+  originalChainCount: number;
 }
 
 // Nuovo: Messaggio che contiene multiple chain of thought
@@ -21,6 +29,18 @@ export interface MultiChainMessage {
   chainOfThoughts: ChainOfThoughtEntry[]; // Array di catene di pensiero
   activeChainId?: string; // Quale catena è attualmente selezionata per la visualizzazione
   messageType: 'multi-thinking';
+  synthesisStatus?: 'pending' | 'processing' | 'completed' | 'failed';
+  finalSynthesis?: FinalSynthesis;
+}
+
+export interface FinalSynthesis {
+  id: string;
+  content: string;
+  synthesisReasoning: string;
+  specialistsUsed: string[];
+  weightDistribution: { [specialistId: string]: number };
+  timestamp: Date;
+  isVisible: boolean; // Per toggle tra chain e sintesi finale
 }
 
 export interface ChainOfThoughtEntry {
