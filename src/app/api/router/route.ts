@@ -14,13 +14,14 @@ export async function POST(req: NextRequest) {
 
     console.log('🤖 AI-Powered Router API called with:', userInput.substring(0, 100) + '...');
 
-    // Usa il nuovo AI Specialist Router
+    // Usa il nuovo AI Specialist Router (con possibile risposta diretta)
     const decision = await AISpecialistRouter.route(userInput);
     
     return NextResponse.json({
       decision,
       timestamp: new Date().toISOString(),
-      routerType: 'ai-powered' // Indica che stiamo usando AI routing
+      routerType: 'ai-powered',
+      hasDirectResponse: !!(decision as any).directResponse
     });
 
   } catch (error) {
