@@ -121,7 +121,7 @@ export function useChat() {
     ));
   }, [currentSessionId]);
 
-  // ✅ NUOVO: Funzione per avviare la sintesi quando tutte le chain sono complete
+  // ✅ MIGLIORATO: Funzione per avviare la sintesi con debug aggiuntivo
   const triggerSynthesis = useCallback(async (
     sessionId: string,
     multiChainMessage: MultiChainMessage,
@@ -129,6 +129,16 @@ export function useChat() {
   ) => {
     try {
       console.log('🧠 Starting synthesis for completed chains...');
+      
+      // ✅ DEBUGGING: Log stato corrente delle chain prima della sintesi
+      console.log('🔍 Pre-synthesis chain state:');
+      multiChainMessage.chainOfThoughts.forEach((chain, index) => {
+        console.log(`  Chain ${index + 1} (${chain.specialist.name}):`);
+        console.log(`    - Content length: ${chain.content?.length || 0}`);
+        console.log(`    - Is complete: ${chain.isComplete}`);
+        console.log(`    - Has error: ${!!chain.error}`);
+        console.log(`    - Is streaming: ${chain.isStreaming}`);
+      });
       
       // Aggiorna status a processing
       updateMultiChainStatus(sessionId, multiChainMessage.id, {
@@ -311,7 +321,7 @@ Per vedere multiple chain of thought con sintesi finale, prova domande più comp
 
       console.log('📨 API messages prepared:', { count: apiMessages.length });
 
-      // ✅ NUOVO: Track completion delle chain per trigger sintesi
+      // ✅ MIGLIORATO: Track completion delle chain per trigger sintesi
       let completedChains = 0;
       const totalChains = decision.selectedSpecialists.length;
 
@@ -381,24 +391,35 @@ Per vedere multiple chain of thought con sintesi finale, prova domande più comp
             throw new Error('No content received from API');
           }
 
+          // ✅ MIGLIORATO: Update finale con flag complete
           updateMultiChainMessage(sessionId, multiChainMessage.id, chainId, {
+            content: accumulatedContent,
             isStreaming: false,
             isComplete: true,
             endTime: new Date()
           });
 
-          console.log(`✅ Chain of thought completed for ${specScore.specialist.name}`);
+          console.log(`✅ Chain of thought completed for ${specScore.specialist.name} (${accumulatedContent.length} chars)`);
 
-          // ✅ NUOVO: Check se tutte le chain sono complete per trigger sintesi
+          // ✅ MIGLIORATO: Check se tutte le chain sono complete per trigger sintesi
           completedChains++;
           console.log(`📊 Completed chains: ${completedChains}/${totalChains}`);
           
           if (completedChains === totalChains) {
             console.log('🎯 All chains completed, triggering synthesis...');
-            // Piccolo delay per assicurarsi che tutti gli update UI siano processati
+            // ✅ AUMENTATO: Delay da 1s a 3s per assicurare tutti gli update
             setTimeout(() => {
-              triggerSynthesis(sessionId, multiChainMessage, content);
-            }, 1000);
+              // Trova il messaggio aggiornato per essere sicuri di avere lo stato più recente
+              const updatedSession = sessions.find(s => s.id === sessionId);
+              const updatedMessage = updatedSession?.messages.find(m => m.id === multiChainMessage.id) as MultiChainMessage;
+              
+              if (updatedMessage && 'chainOfThoughts' in updatedMessage) {
+                triggerSynthesis(sessionId, updatedMessage, content);
+              } else {
+                console.error('❌ Could not find updated multichain message for synthesis');
+                triggerSynthesis(sessionId, multiChainMessage, content); // Fallback
+              }
+            }, 3000); // 3 secondi di delay
           }
 
         } catch (error: any) {
@@ -420,7 +441,7 @@ Per vedere multiple chain of thought con sintesi finale, prova domande più comp
               console.log('🎯 All chains processed (some with errors), triggering synthesis...');
               setTimeout(() => {
                 triggerSynthesis(sessionId, multiChainMessage, content);
-              }, 1000);
+              }, 3000); // Stesso delay anche per errori
             }
           }
         }
