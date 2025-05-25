@@ -28,25 +28,24 @@ export interface SpecialistProfile {
   chainOfThoughtPrompt: string;
 }
 
-// Nuovo: Punteggio per ogni specialista
 export interface SpecialistScore {
   specialist: SpecialistProfile;
-  score: number; // 0-1, quanto è adatto per questo input
-  reasoning: string; // Perché ha questo punteggio
-  features: string[]; // Quali feature dell'input hanno influenzato il punteggio
+  score: number;
+  reasoning: string;
+  features: string[];
 }
 
-// Modificato: Router decision ora supporta multi-specialisti
 export interface RouterDecision {
   useGeneric: boolean;
-  selectedSpecialists: SpecialistScore[]; // Array invece di uno solo
-  allScores: SpecialistScore[]; // Tutti i punteggi per debug
+  selectedSpecialists: SpecialistScore[];
+  allScores: SpecialistScore[];
   tokenCount: number;
   complexity: 'low' | 'medium' | 'high';
   reasoning: string;
-  activationThreshold: number; // Soglia usata
+  activationThreshold: number;
 }
 
+// ✅ AGGIUNTO: Nuovo campo per multi-competenza
 export interface TokenAnalysis {
   count: number;
   words: number;
@@ -55,16 +54,15 @@ export interface TokenAnalysis {
   hasTechnicalTerms: boolean;
   hasEmotionalContent: boolean;
   requiresCreativity: boolean;
-  // Nuove feature per scoring più preciso
-  technicalWeight: number; // 0-1, quanto è tecnico
-  creativeWeight: number; // 0-1, quanto richiede creatività
-  analyticalWeight: number; // 0-1, quanto richiede analisi
-  emotionalWeight: number; // 0-1, quanto ha contenuto emotivo
-  urgencyLevel: number; // 0-1, livello di urgenza percepito
-  domainHints: string[]; // Domini identificati (es. ["programming", "web-dev"])
+  technicalWeight: number;
+  creativeWeight: number;
+  analyticalWeight: number;
+  emotionalWeight: number;
+  urgencyLevel: number;
+  domainHints: string[];
+  multiCompetenceBonus?: number; // ✅ NUOVO
 }
 
-// Nuovi tipi per chain of thought
 export interface ChainOfThoughtStep {
   step: number;
   phase: string;
@@ -82,7 +80,6 @@ export interface ChainOfThoughtResponse {
   metacognitionNotes?: string;
 }
 
-// Tipi per metacognizione
 export interface SpecialistPerformanceMetrics {
   specialistId: string;
   totalUses: number;
